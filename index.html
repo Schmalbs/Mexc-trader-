@@ -966,20 +966,22 @@ function initChart(){
     touchStartX = touch.clientX;
     touchStartY = touch.clientY;
 
+    log(`touchstart: awaitingP2=${awaitingPoint2} drawStep=${drawStep}`,'info');
+
     if(awaitingPoint2){
-      // Point 2 mode — show crosshair immediately, no long press needed
       const rect = chartEl.getBoundingClientRect();
       showCrosshair(touch.clientX, touch.clientY, rect);
+      log(`P2 crosshair shown at ${touch.clientX},${touch.clientY}`,'info');
       return;
     }
 
-    // Point 1 / horiz mode — requires long press
     if(longPressTimer) clearTimeout(longPressTimer);
     longPressTimer = setTimeout(()=>{
       longPressTimer = null;
       navigator.vibrate&&navigator.vibrate(30);
       const rect = chartEl.getBoundingClientRect();
       showCrosshair(touchStartX, touchStartY, rect);
+      log(`Long press fired, crosshair shown`,'info');
     }, 400);
 
   }, {passive:false});
@@ -990,13 +992,11 @@ function initChart(){
     const touch = e.touches[0];
 
     if(awaitingPoint2){
-      // Always track finger for point 2
       const rect = chartEl.getBoundingClientRect();
       showCrosshair(touch.clientX, touch.clientY, rect);
       return;
     }
 
-    // Point 1: cancel long press if panning
     const dx = Math.abs(touch.clientX - touchStartX);
     const dy = Math.abs(touch.clientY - touchStartY);
     if((dx>8||dy>8) && longPressTimer){
@@ -1006,7 +1006,6 @@ function initChart(){
       return;
     }
 
-    // Long press already fired — track crosshair
     if(crosshairVisible){
       const rect = chartEl.getBoundingClientRect();
       showCrosshair(touch.clientX, touch.clientY, rect);
@@ -1018,13 +1017,17 @@ function initChart(){
     e.preventDefault();
 
     if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer=null; }
-
     setChartScroll(true);
 
-    if(!crosshairVisible || !crosshairPt) return;
+    log(`touchend: awaitingP2=${awaitingPoint2} crosshairVisible=${crosshairVisible} crosshairPt=${JSON.stringify(crosshairPt)}`,'info');
+
+    if(!crosshairVisible || !crosshairPt){
+      log(`touchend: no crosshair/pt — ignoring`,'warn');
+      return;
+    }
 
     if(awaitingPoint2){
-      // Confirm point 2 — draw the line
+      log(`Confirming point 2!`,'ok');
       awaitingPoint2 = false;
       navigator.vibrate&&navigator.vibrate([30,20,60]);
       removePreview();
@@ -1038,7 +1041,7 @@ function initChart(){
       return;
     }
 
-    // Point 1 or horiz — crosshair was placed by long press, now confirm
+    log(`Calling confirmPoint (P1 or horiz)`,'info');
     confirmPoint();
 
   }, {passive:false});
