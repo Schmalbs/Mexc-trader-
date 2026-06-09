@@ -901,32 +901,77 @@ function initChart(){
   new ResizeObserver(()=>chart.applyOptions({width:container.clientWidth,height:container.clientHeight})).observe(container);
   chart.applyOptions({width:container.clientWidth,height:container.clientHeight});
   // Desktop: click to place points when tool active
-  // ── DRAWING: use chart crosshair + floating LOCK button ─
-  // User scrolls finger on chart — crosshair follows naturally
-  // Tap the LOCK button to confirm each point — no touch event hacks needed
+  // ── DRAWING: offset crosshair above finger + Lock button ─
+  // Touch moves the chart crosshair naturally (no preventDefault)
+  // We overlay our own crosshair 60px ABOVE the finger position
+  // Lock button confirms each point — 100% reliable tap target
 
-  chart.subscribeCrosshairMove(param=>{
+  const chartEl = document.getElementById('chart');
+
+  // Show offset crosshair overlay on touchmove
+  chartEl.addEventListener('touchmove', e=>{
     if(!drawTool) return;
-    if(!param.point) return;
-    const price = candleSeries.coordinateToPrice(param.point.y);
-    const time  = param.time;
-    if(price == null || !time) return;
+    const touch = e.touches[0];
+    const rect  = chartEl.getBoundingClientRect();
+    const cx    = touch.clientX - rect.left;
+    const cy    = touch.clientY - rect.top - CROSSHAIR_OFFSET;
+    if(cy < 0) return;
 
-    crosshairPt = {time, price};
+    const price = candleSeries.coordinateToPrice(cy);
+    const time  = chart.timeScale().coordinateToTime(cx);
+    if(price == null) return;
+
+    crosshairPt = {time: time||Math.floor(Date.now()/1000), price};
+    crosshairPx = {x:cx, y:cy};
     crosshairVisible = true;
 
-    // Update lock button price label
+    // Show visual overlay
+    const dc = document.getElementById('drawCrosshair');
+    dc.style.display = 'block';
+    dc.style.left = '0'; dc.style.top = '0';
+    dc.style.width = rect.width+'px'; dc.style.height = rect.height+'px';
+    document.getElementById('dcVertical').style.left  = cx+'px';
+    document.getElementById('dcHorizontal').style.top = cy+'px';
+    document.getElementById('dcDot').style.left = cx+'px';
+    document.getElementById('dcDot').style.top  = cy+'px';
+    const lbl = document.getElementById('dcLabel');
+    lbl.style.top  = cy+'px';
+    lbl.style.left = cx+'px';
+    const fmt = price<1?price.toFixed(6):price<100?price.toFixed(4):price.toFixed(2);
+    lbl.textContent = '$'+fmt;
+
+    // Update lock button label
     const btn = document.getElementById('lockPointBtn');
     if(btn){
-      const fmt = price<1?price.toFixed(6):price<100?price.toFixed(4):price.toFixed(2);
-      if(drawStep===0) btn.textContent = `Lock Point 1 @ $${fmt}`;
-      else             btn.textContent = `Lock Point 2 @ $${fmt}`;
+      if(drawStep===0) btn.textContent = `Lock Point 1  $${fmt}`;
+      else             btn.textContent = `Lock Point 2  $${fmt}`;
     }
 
-    // Live preview when waiting for point 2
-    if(drawStep===1 && drawP1){
-      updatePreview(crosshairPt);
+    // Live preview for point 2
+    if(drawStep===1 && drawP1) updatePreview(crosshairPt);
+
+  }, {passive:true}); // passive:true so chart can scroll freely
+
+  // Hide offset crosshair when finger lifts (lock button stays visible)
+  chartEl.addEventListener('touchend', e=>{
+    if(!drawTool) return;
+    document.getElementById('drawCrosshair').style.display = 'none';
+  }, {passive:true});
+
+  // Also track via chart's own crosshair for desktop
+  chart.subscribeCrosshairMove(param=>{
+    if(!drawTool || !param.point || !param.time) return;
+    const price = candleSeries.coordinateToPrice(param.point.y);
+    if(price == null) return;
+    crosshairPt = {time: param.time, price};
+    crosshairVisible = true;
+    const fmt = price<1?price.toFixed(6):price<100?price.toFixed(4):price.toFixed(2);
+    const btn = document.getElementById('lockPointBtn');
+    if(btn){
+      if(drawStep===0) btn.textContent = `Lock Point 1  $${fmt}`;
+      else             btn.textContent = `Lock Point 2  $${fmt}`;
     }
+    if(drawStep===1 && drawP1) updatePreview(crosshairPt);
   });
 }
 
