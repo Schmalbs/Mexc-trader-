@@ -991,20 +991,66 @@ function initChart(){
     }
   }, {passive:false});
 
+  // Track touch duration to distinguish tap vs long-press
+  let touchStartTime = 0;
+  let touchEndedAfterLongPress = false;
+
   chartEl.addEventListener('touchend', e=>{
-    if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer=null; }
-    if(!crosshairVisible){
-      // No crosshair shown — re-enable scroll (user was panning)
+    const touchDuration = Date.now() - touchStartTime;
+    const wasPanning = !crosshairVisible && !longPressTimer;
+
+    if(longPressTimer){
+      // Finger lifted before long press fired — it's a quick tap
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+
+      if(crosshairVisible){
+        // Short tap while crosshair visible = CONFIRM POINT
+        e.preventDefault();
+        confirmPoint();
+        return;
+      }
+      // Quick tap with no crosshair = ignore, re-enable scroll
       setChartScroll(true);
+      return;
     }
-    // If crosshair visible — keep scroll disabled, wait for tap to confirm
-    if(crosshairVisible) e.preventDefault();
+
+    // Long press already fired (longPressTimer is null, crosshair may be visible)
+    if(crosshairVisible){
+      // Finger lifted after long press drag — crosshair stays, waiting for tap
+      e.preventDefault();
+      touchEndedAfterLongPress = true;
+      return;
+    }
+
+    if(wasPanning) setChartScroll(true);
   }, {passive:false});
 
-  // TAP — confirms crosshair position as a point
-  chartEl.addEventListener('click', e=>{
+  // Short tap on chart while crosshair is frozen = confirm point
+  chartEl.addEventListener('touchstart', e=>{
+    // Second touchstart while crosshair is already visible = new tap to confirm
+    if(crosshairVisible && touchEndedAfterLongPress){
+      // This is the confirm tap — handle on touchend below
+      touchEndedAfterLongPress = false;
+      return;
+    }
+    touchStartTime = Date.now();
+    touchEndedAfterLongPress = false;
+  }, {passive:false, capture:true});
+
+  // Dedicated short-tap confirm listener (capture phase, won't interfere with long press)
+  chartEl.addEventListener('touchend', e=>{
     if(!drawTool || !crosshairVisible || !crosshairPt) return;
-    e.stopPropagation();
+    const touchDuration = Date.now() - touchStartTime;
+    // Only treat as confirm tap if touch was short (< 400ms) AND crosshair is visible
+    if(touchDuration < 400){
+      e.preventDefault();
+      confirmPoint();
+    }
+  }, {passive:false, capture:true});
+
+  function confirmPoint(){
+    if(!drawTool || !crosshairVisible || !crosshairPt) return;
 
     if(drawTool==='horiz'){
       navigator.vibrate&&navigator.vibrate([30,20,30]);
@@ -1018,7 +1064,6 @@ function initChart(){
 
     if(drawTool==='trend'){
       if(drawStep===0){
-        // Lock point 1 — crosshair disappears, green dot shows
         navigator.vibrate&&navigator.vibrate(40);
         drawP1   = crosshairPt;
         drawP1px = crosshairPx;
@@ -1031,7 +1076,6 @@ function initChart(){
         showInstruction('Point 1 locked ✓  Long press to place point 2');
 
       } else if(drawStep===1){
-        // Lock point 2 — draw line, reset everything
         navigator.vibrate&&navigator.vibrate([30,20,30]);
         removePreview();
         addTrendLine(drawP1, crosshairPt);
@@ -1043,7 +1087,7 @@ function initChart(){
         setDrawTool(null);
       }
     }
-  });
+  }
 }
 
 // ── CANDLE LOADING ─────────────────────────────
