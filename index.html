@@ -952,10 +952,9 @@ function initChart(){
 
   }, {passive:true}); // passive:true so chart can scroll freely
 
-  // Hide offset crosshair when finger lifts (lock button stays visible)
+  // Keep crosshair visible when finger lifts so user can see position before locking
   chartEl.addEventListener('touchend', e=>{
-    if(!drawTool) return;
-    document.getElementById('drawCrosshair').style.display = 'none';
+    // Do nothing — crosshair stays showing so user sees exactly where they were
   }, {passive:true});
 
   // Also track via chart's own crosshair for desktop
@@ -1646,9 +1645,13 @@ function lockPoint(){
       // Lock point 1
       drawP1 = crosshairPt;
       drawStep = 1;
-      showInstruction('Point 1 ✓  Move crosshair to point 2');
+      // Hide crosshair so user knows point 1 is locked and needs to move for point 2
+      document.getElementById('drawCrosshair').style.display = 'none';
+      crosshairPt = null;
+      crosshairVisible = false;
+      showInstruction('Point 1 ✓  Drag to point 2 then tap Lock');
       const btn = document.getElementById('lockPointBtn');
-      btn.textContent = 'Lock Point 2 @ --';
+      btn.textContent = 'Lock Point 2  —  drag first';
       btn.style.background = 'var(--accent)';
       log(`Point 1 locked @ $${drawP1.price.toFixed(4)}`,'ok');
     } else if(drawStep===1){
