@@ -909,8 +909,17 @@ function initChart(){
   const chartEl = document.getElementById('chart');
 
   // Show offset crosshair overlay on touchmove
+  // passive:false so we can preventDefault and stop chart panning while drawing
+  chartEl.addEventListener('touchstart', e=>{
+    if(!drawTool) return;
+    // Disable chart scroll the moment a draw tool is active and finger touches
+    e.preventDefault();
+    setChartScroll(false);
+  }, {passive:false});
+
   chartEl.addEventListener('touchmove', e=>{
     if(!drawTool) return;
+    e.preventDefault(); // stop chart from panning in x
     const touch = e.touches[0];
     const rect  = chartEl.getBoundingClientRect();
     const cx    = touch.clientX - rect.left;
@@ -950,12 +959,14 @@ function initChart(){
     // Live preview for point 2
     if(drawStep===1 && drawP1) updatePreview(crosshairPt);
 
-  }, {passive:true}); // passive:true so chart can scroll freely
+  }, {passive:false});
 
-  // Keep crosshair visible when finger lifts so user can see position before locking
+  // Re-enable scroll when finger lifts
   chartEl.addEventListener('touchend', e=>{
-    // Do nothing — crosshair stays showing so user sees exactly where they were
-  }, {passive:true});
+    if(drawTool) e.preventDefault();
+    // Re-enable chart scroll so user can still pan between touches
+    setChartScroll(true);
+  }, {passive:false});
 
   // Also track via chart's own crosshair for desktop
   chart.subscribeCrosshairMove(param=>{
