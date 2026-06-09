@@ -58,6 +58,9 @@
 
   /* CHART */
   .chart-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative;}
+  .chart-wrap.fullscreen{position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;z-index:1000!important;background:var(--bg);}
+  .chart-wrap.fullscreen #chart{flex:1;}
+  #fullscreenBtn{margin-left:auto;}
   .chart-toolbar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;}
   .tf-btns{display:flex;gap:4px;}
   .tf-btn{padding:3px 9px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:var(--font-mono);font-size:11px;cursor:pointer;transition:all .15s;}
@@ -220,6 +223,7 @@
         <button class="btn btn-ghost" id="toolTrend" onclick="setDrawTool('trend')" title="Trend Line — long press & drag">↗ Trend</button>
         <button class="btn btn-ghost" id="toolHoriz" onclick="setDrawTool('horiz')" title="Horizontal Line — long press to place">— Horiz</button>
         <button class="btn btn-ghost" onclick="clearAllLines()">✕ Clear</button>
+        <button class="btn btn-ghost" id="fullscreenBtn" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
       </div>
       <!-- LINE COLOUR PICKER -->
       <div class="line-colors">
@@ -1700,6 +1704,67 @@ function log(msg,type=''){
   box.appendChild(el);
   box.scrollTop=box.scrollHeight;
 }
+
+// ── FULLSCREEN ────────────────────────────────
+let isFullscreen = false;
+function toggleFullscreen(){
+  const wrap = document.querySelector('.chart-wrap');
+  const btn  = document.getElementById('fullscreenBtn');
+  isFullscreen = !isFullscreen;
+
+  if(isFullscreen){
+    // Try native fullscreen API first
+    if(wrap.requestFullscreen){ wrap.requestFullscreen(); }
+    else if(wrap.webkitRequestFullscreen){ wrap.webkitRequestFullscreen(); } // Safari
+    wrap.classList.add('fullscreen');
+    btn.textContent = '✕ Exit';
+    btn.style.background = 'var(--accent2)';
+    btn.style.color = '#fff';
+  } else {
+    if(document.exitFullscreen){ document.exitFullscreen().catch(()=>{}); }
+    else if(document.webkitExitFullscreen){ document.webkitExitFullscreen(); }
+    wrap.classList.remove('fullscreen');
+    btn.textContent = '⛶';
+    btn.style.background = '';
+    btn.style.color = '';
+  }
+
+  // Resize chart after transition
+  setTimeout(()=>{
+    const container = document.getElementById('chart');
+    chart.applyOptions({width:container.clientWidth, height:container.clientHeight});
+  }, 50);
+}
+
+// Exit fullscreen when ESC pressed or native fullscreen exits
+document.addEventListener('fullscreenchange', ()=>{
+  if(!document.fullscreenElement && isFullscreen){
+    isFullscreen = false;
+    document.querySelector('.chart-wrap').classList.remove('fullscreen');
+    const btn = document.getElementById('fullscreenBtn');
+    btn.textContent = '⛶';
+    btn.style.background = '';
+    btn.style.color = '';
+    setTimeout(()=>{
+      const container = document.getElementById('chart');
+      chart.applyOptions({width:container.clientWidth, height:container.clientHeight});
+    }, 50);
+  }
+});
+document.addEventListener('webkitfullscreenchange', ()=>{
+  if(!document.webkitFullscreenElement && isFullscreen){
+    isFullscreen = false;
+    document.querySelector('.chart-wrap').classList.remove('fullscreen');
+    const btn = document.getElementById('fullscreenBtn');
+    btn.textContent = '⛶';
+    btn.style.background = '';
+    btn.style.color = '';
+    setTimeout(()=>{
+      const container = document.getElementById('chart');
+      chart.applyOptions({width:container.clientWidth, height:container.clientHeight});
+    }, 50);
+  }
+});
 
 // ── INIT ───────────────────────────────────────
 function startApp(){
