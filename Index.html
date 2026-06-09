@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MEXC Trend Trader</title>
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+  :root {
+    --bg:#0d0f14; --surface:#13161e; --panel:#1a1e28; --border:#252a38;
+    --accent:#00c896; --accent2:#3d7fff; --danger:#ff4d6a; --warn:#f5a623;
+    --text:#e2e6f0; --muted:#6b7494;
+    --font-ui:'IBM Plex Sans',sans-serif; --font-mono:'IBM Plex Mono',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:var(--font-ui);height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+
+  /* HEADER */
+  header{display:flex;align-items:center;gap:12px;padding:0 14px;height:52px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;}
+  .logo{font-family:var(--font-mono);font-weight:600;font-size:15px;color:var(--accent);letter-spacing:1px;white-space:nowrap;}
+  .logo span{color:var(--muted);font-weight:400;}
+  .header-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;}
+
+  /* ACCOUNT BADGE */
+  .acct-badge{display:flex;flex-direction:column;align-items:flex-end;margin-left:auto;gap:1px;}
+  .acct-pct{font-family:var(--font-mono);font-size:18px;font-weight:600;line-height:1;}
+  .acct-pct.pos{color:var(--accent);}
+  .acct-pct.neg{color:var(--danger);}
+  .acct-pct.zero{color:var(--muted);}
+  .acct-sub{font-family:var(--font-mono);font-size:9px;color:var(--muted);letter-spacing:1px;}
+
+  /* INPUTS */
+  select,input[type=text],input[type=number],input[type=password]{background:var(--panel);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:12px;padding:5px 9px;border-radius:5px;outline:none;transition:border-color .15s;}
+  select:focus,input:focus{border-color:var(--accent);}
+  select{cursor:pointer;}
+
+  /* BUTTONS */
+  .btn{padding:6px 14px;border-radius:5px;border:none;cursor:pointer;font-family:var(--font-mono);font-size:12px;font-weight:500;transition:opacity .15s,transform .1s;white-space:nowrap;}
+  .btn:active{transform:scale(.97);}
+  .btn-accent{background:var(--accent);color:#000;}
+  .btn-accent2{background:var(--accent2);color:#fff;}
+  .btn-danger{background:var(--danger);color:#fff;}
+  .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text);}
+  .btn-buy{background:rgba(0,200,150,.15);border:1px solid var(--accent);color:var(--accent);font-weight:600;}
+  .btn-sell{background:rgba(255,77,106,.15);border:1px solid var(--danger);color:var(--danger);font-weight:600;}
+  .btn-close-trade{background:rgba(245,166,35,.15);border:1px solid var(--warn);color:var(--warn);font-weight:600;width:100%;}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+
+  /* PILLS */
+  .pill{font-family:var(--font-mono);font-size:11px;padding:3px 8px;border-radius:20px;white-space:nowrap;}
+  .pill-green{background:rgba(0,200,150,.15);color:var(--accent);border:1px solid rgba(0,200,150,.3);}
+  .pill-red{background:rgba(255,77,106,.15);color:var(--danger);border:1px solid rgba(255,77,106,.3);}
+  .pill-grey{background:rgba(107,116,148,.15);color:var(--muted);border:1px solid rgba(107,116,148,.3);}
+
+  /* LAYOUT */
+  .main{display:flex;flex:1;overflow:hidden;}
+
+  /* CHART */
+  .chart-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative;}
+  .chart-toolbar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;}
+  .tf-btns{display:flex;gap:4px;}
+  .tf-btn{padding:3px 9px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:var(--font-mono);font-size:11px;cursor:pointer;transition:all .15s;}
+  .tf-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .tf-btn.active{background:var(--accent);border-color:var(--accent);color:#000;font-weight:600;}
+
+  /* LINE COLOUR SWATCHES */
+  .line-colors{display:flex;gap:4px;align-items:center;}
+  .lc-swatch{width:22px;height:22px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:border-color .15s,transform .1s;flex-shrink:0;}
+  .lc-swatch:hover{transform:scale(1.15);}
+  .lc-swatch.selected{border-color:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.4);}
+  .lc-label{font-family:var(--font-mono);font-size:10px;color:var(--muted);margin-right:2px;}
+
+  /* TP/SL MODE TOGGLE */
+  .exit-type-toggle{display:flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:4px;}
+  .ett-btn{flex:1;padding:3px 0;background:transparent;border:none;color:var(--muted);font-family:var(--font-mono);font-size:10px;cursor:pointer;transition:all .15s;text-align:center;}
+  .ett-btn.active-pct{background:rgba(61,127,255,.25);color:var(--accent2);font-weight:600;}
+  .ett-btn.active-price{background:rgba(0,200,150,.15);color:var(--accent);font-weight:600;}
+
+  /* QTY MODE TOGGLE */
+  .qty-mode-toggle{display:flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:4px;}
+  .qmt-btn{flex:1;padding:3px 0;background:transparent;border:none;color:var(--muted);font-family:var(--font-mono);font-size:10px;cursor:pointer;transition:all .15s;text-align:center;}
+  .qmt-btn.active{background:rgba(61,127,255,.2);color:var(--accent2);font-weight:600;}
+
+  /* PNL MODE SWITCH */
+  .pnl-mode-switch{display:flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;}
+  .pms-btn{flex:1;padding:3px 0;background:transparent;border:none;color:var(--muted);font-family:var(--font-mono);font-size:10px;cursor:pointer;transition:all .15s;text-align:center;}
+  .pms-btn.active{background:rgba(0,200,150,.15);color:var(--accent);font-weight:600;}
+  #chart{flex:1;}
+
+  .mode-indicator{position:absolute;top:52px;left:12px;font-family:var(--font-mono);font-size:11px;padding:4px 10px;border-radius:4px;background:rgba(61,127,255,.2);border:1px solid rgba(61,127,255,.4);color:var(--accent2);pointer-events:none;display:none;}
+  .mode-indicator.visible{display:block;}
+
+  /* TRADE MONITOR OVERLAY */
+  .trade-monitor{position:absolute;bottom:16px;left:16px;background:rgba(13,15,20,.9);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-family:var(--font-mono);font-size:12px;min-width:220px;display:none;backdrop-filter:blur(8px);}
+  .trade-monitor.visible{display:block;}
+  .tm-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;}
+  .tm-label{font-size:9px;color:var(--muted);letter-spacing:1.2px;text-transform:uppercase;}
+  .tm-pct{font-size:30px;font-weight:600;letter-spacing:-0.5px;line-height:1.1;}
+  .tm-pct.positive{color:var(--accent);}
+  .tm-pct.negative{color:var(--danger);}
+  .tm-acct-pct{font-size:13px;font-weight:600;}
+  .tm-acct-pct.positive{color:var(--accent);}
+  .tm-acct-pct.negative{color:var(--danger);}
+  .tm-sub{font-size:10px;color:var(--muted);margin-top:4px;margin-bottom:8px;}
+  .tm-bars{display:flex;gap:6px;margin-top:6px;}
+  .tm-bar-wrap{flex:1;}
+  .tm-bar-label{font-size:9px;color:var(--muted);margin-bottom:3px;}
+  .tm-bar-track{height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
+  .tm-bar-fill{height:100%;border-radius:2px;transition:width .3s;}
+  .tm-bar-fill.tp{background:var(--accent);}
+  .tm-bar-fill.sl{background:var(--danger);}
+  .tm-close-btn{margin-top:10px;width:100%;padding:5px;border-radius:5px;border:1px solid var(--warn);background:rgba(245,166,35,.1);color:var(--warn);font-family:var(--font-mono);font-size:11px;cursor:pointer;transition:background .15s;}
+  .tm-close-btn:hover{background:rgba(245,166,35,.25);}
+
+  /* SIDE PANEL */
+  .side-panel{width:300px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;}
+  .panel-section{padding:14px;border-bottom:1px solid var(--border);}
+  .panel-title{font-family:var(--font-mono);font-size:10px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:12px;}
+
+  /* QUICK TRADE */
+  .quick-btns{display:flex;gap:6px;margin-bottom:10px;}
+  .quick-btns .btn{flex:1;padding:8px 6px;font-size:12px;}
+
+  /* FORMS */
+  .form-row{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;}
+  .form-label{font-size:11px;color:var(--muted);font-family:var(--font-mono);}
+  .form-row input,.form-row select{width:100%;}
+  .inline-row{display:flex;gap:8px;}
+  .inline-row .form-row{flex:1;}
+  .sub-label{font-size:10px;color:var(--accent2);font-family:var(--font-mono);letter-spacing:1px;text-transform:uppercase;margin:8px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border);}
+
+  /* TOGGLE */
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .toggle-label{font-size:11px;color:var(--muted);font-family:var(--font-mono);}
+  .toggle{position:relative;width:36px;height:20px;flex-shrink:0;}
+  .toggle input{opacity:0;width:0;height:0;}
+  .toggle-slider{position:absolute;inset:0;background:var(--border);border-radius:20px;cursor:pointer;transition:.2s;}
+  .toggle-slider:before{content:'';position:absolute;width:14px;height:14px;left:3px;top:3px;background:var(--muted);border-radius:50%;transition:.2s;}
+  .toggle input:checked+.toggle-slider{background:var(--accent2);}
+  .toggle input:checked+.toggle-slider:before{transform:translateX(16px);background:#fff;}
+
+  /* TREND LINE LIST */
+  .tl-list{display:flex;flex-direction:column;gap:6px;max-height:150px;overflow-y:auto;}
+  .tl-item{display:flex;align-items:center;justify-content:space-between;background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:7px 10px;font-family:var(--font-mono);font-size:11px;gap:8px;}
+  .tl-item.armed{border-color:var(--accent);}
+  .tl-item-info{flex:1;}
+  .tl-name{color:var(--text);font-weight:500;}
+  .tl-meta{color:var(--muted);font-size:10px;margin-top:2px;}
+  .tl-del{background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px;padding:0 2px;}
+
+  /* ACTIVE TRADE CARD */
+  .active-trade-card{background:var(--panel);border:1px solid var(--accent);border-radius:6px;padding:10px;font-family:var(--font-mono);font-size:11px;margin-bottom:8px;}
+  .atc-row{display:flex;justify-content:space-between;margin-bottom:3px;}
+  .atc-key{color:var(--muted);}
+  .atc-val{color:var(--text);font-weight:500;}
+
+  /* LOG */
+  .log-box{background:var(--panel);border:1px solid var(--border);border-radius:5px;height:120px;overflow-y:auto;padding:8px;font-family:var(--font-mono);font-size:11px;color:var(--muted);}
+  .log-entry{margin-bottom:4px;line-height:1.5;}
+  .log-entry.ok{color:var(--accent);}
+  .log-entry.err{color:var(--danger);}
+  .log-entry.warn{color:var(--warn);}
+  .log-entry.info{color:var(--accent2);}
+
+  .price-big{font-family:var(--font-mono);font-size:20px;font-weight:600;color:var(--text);letter-spacing:1px;}
+  .price-change{font-family:var(--font-mono);font-size:12px;margin-top:2px;}
+
+  @media(max-width:700px){
+    .side-panel{width:100%;max-height:45vh;border-left:none;border-top:1px solid var(--border);}
+    .main{flex-direction:column;}
+    header{height:auto;padding:8px;}
+  }
+  ::-webkit-scrollbar{width:4px;height:4px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">MEXC<span>/TREND</span></div>
+  <div class="header-controls">
+    <input type="text" id="symbolInput" value="BTC_USDT" style="width:110px" placeholder="e.g. BTC_USDT"/>
+    <button class="btn btn-accent2" onclick="loadCandles()">Load</button>
+    <input type="password" id="apiKey" placeholder="API Key" style="width:110px"/>
+    <input type="password" id="apiSecret" placeholder="API Secret" style="width:110px"/>
+    <span id="connPill" class="pill pill-grey">● NOT CONNECTED</span>
+    <!-- ACCOUNT % BADGE -->
+    <div class="acct-badge" style="cursor:pointer" onclick="toggleHeaderPnlMode()" title="Click to toggle % / $">
+      <div class="acct-pct zero" id="acctPct">0.00%</div>
+      <div class="acct-sub" id="acctSub">ACCOUNT P&amp;L ⇄</div>
+    </div>
+  </div>
+</header>
+
+<div class="main">
+  <!-- CHART -->
+  <div class="chart-wrap">
+    <div class="chart-toolbar">
+      <div class="tf-btns" id="tfBtns">
+        <button class="tf-btn" data-tf="1m">1m</button>
+        <button class="tf-btn" data-tf="5m">5m</button>
+        <button class="tf-btn active" data-tf="15m">15m</button>
+        <button class="tf-btn" data-tf="1h">1h</button>
+        <button class="tf-btn" data-tf="4h">4h</button>
+        <button class="tf-btn" data-tf="1d">1D</button>
+      </div>
+      <button class="btn btn-accent2" id="drawBtn" onclick="toggleDrawMode()">✏ Draw Line</button>
+      <button class="btn btn-ghost" onclick="clearAllLines()">Clear Lines</button>
+      <!-- LINE COLOUR PICKER -->
+      <div class="line-colors">
+        <span class="lc-label">LINE:</span>
+        <div class="lc-swatch"          data-color="#3d7fff" title="Blue (4H)"         style="background:#3d7fff" onclick="selectLineColor(this)"></div>
+        <div class="lc-swatch"          data-color="#f5c842" title="Yellow (4H)"      style="background:#f5c842" onclick="selectLineColor(this)"></div>
+        <div class="lc-swatch"          data-color="#00c896" title="Green"            style="background:#00c896" onclick="selectLineColor(this)"></div>
+        <div class="lc-swatch"          data-color="#b06aff" title="Purple (Weekly)"  style="background:#b06aff" onclick="selectLineColor(this)"></div>
+        <div class="lc-swatch"          data-color="#ff4d6a" title="Red (Monthly)"    style="background:#ff4d6a" onclick="selectLineColor(this)"></div>
+        <div class="lc-swatch"          data-color="#ff8c00" title="Orange"           style="background:#ff8c00" onclick="selectLineColor(this)"></div>
+        <div class="lc-swatch selected" data-color="#ffffff" title="White (default)"  style="background:#fff"    onclick="selectLineColor(this)"></div>
+        <!-- Custom colour -->
+        <input type="color" id="customColorPicker" value="#ffffff"
+          title="Custom colour"
+          style="width:22px;height:22px;border-radius:50%;border:2px solid var(--border);background:transparent;cursor:pointer;padding:0;overflow:hidden;"
+          onchange="selectCustomColor(this)"/>
+      </div>
+      <span id="drawHint" style="font-size:11px;color:var(--muted);font-family:var(--font-mono)"></span>
+    </div>
+    <div id="chart"></div>
+    <div class="mode-indicator" id="modeIndicator">DRAWING MODE — click two points</div>
+
+    <!-- TRADE MONITOR OVERLAY -->
+    <div class="trade-monitor" id="tradeMonitor">
+      <div class="tm-row">
+        <div class="tm-label">Trade P&amp;L</div>
+        <div class="tm-acct-pct" id="tmAcctPct">acct: 0.00%</div>
+      </div>
+      <div class="tm-pct positive" id="tmPct">+0.00%</div>
+      <div class="tm-sub" id="tmSub">TP: -- | SL: --</div>
+      <div class="tm-bars">
+        <div class="tm-bar-wrap">
+          <div class="tm-bar-label">▲ TO TP</div>
+          <div class="tm-bar-track"><div class="tm-bar-fill tp" id="tpBar" style="width:0%"></div></div>
+        </div>
+        <div class="tm-bar-wrap">
+          <div class="tm-bar-label">▼ TO SL</div>
+          <div class="tm-bar-track"><div class="tm-bar-fill sl" id="slBar" style="width:0%"></div></div>
+        </div>
+      </div>
+      <button class="tm-close-btn" onclick="manualCloseTrade()">⚡ Close Trade Now (Market)</button>
+    </div>
+  </div>
+
+  <!-- SIDE PANEL -->
+  <div class="side-panel">
+
+    <!-- MARKET -->
+    <div class="panel-section">
+      <div class="panel-title">Market</div>
+      <div class="price-big" id="priceDisplay">--</div>
+      <div class="price-change" id="priceChange">--</div>
+    </div>
+
+    <!-- ACCOUNT SETUP -->
+    <div class="panel-section">
+      <div class="panel-title">Account</div>
+      <div class="inline-row" style="align-items:flex-end;gap:6px;margin-bottom:8px;">
+        <div class="form-row" style="flex:1;margin-bottom:0">
+          <div class="form-label">USDT Balance</div>
+          <input type="number" id="startBalance" value="1000" min="0" step="10"/>
+        </div>
+        <button class="btn btn-accent2" style="font-size:11px;padding:5px 10px;flex-shrink:0" onclick="fetchAccountBalance()">↻ Sync</button>
+        <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px;flex-shrink:0" onclick="resetAccountPnl()">Reset</button>
+      </div>
+      <div id="balanceStatus" style="font-size:10px;font-family:var(--font-mono);color:var(--muted);margin-bottom:6px;display:none"></div>
+      <div style="margin-bottom:6px;">
+        <div class="pnl-mode-switch">
+          <button class="pms-btn active" id="pnlModeBtn$"  onclick="setPnlMode('$')">$ Amount</button>
+          <button class="pms-btn"        id="pnlModeBtn%"  onclick="setPnlMode('%')">% of Account</button>
+        </div>
+      </div>
+      <div style="font-size:10px;font-family:var(--font-mono);color:var(--muted)">
+        Realized P&amp;L: <span id="realizedPnl" style="color:var(--text)">$0.00</span>
+        &nbsp;|&nbsp; Trades: <span id="tradeCount" style="color:var(--text)">0</span>
+      </div>
+    </div>
+
+    <!-- MANUAL TRADE -->
+    <div class="panel-section">
+      <div class="panel-title">Manual Trade</div>
+      <!-- Quick buttons -->
+      <div class="quick-btns">
+        <button class="btn btn-buy" onclick="quickTrade('BUY')">▲ QUICK BUY</button>
+        <button class="btn btn-sell" onclick="quickTrade('SELL')">▼ QUICK SELL</button>
+      </div>
+      <!-- Active trade card -->
+      <div id="activeTradeCard" style="display:none">
+        <div class="active-trade-card">
+          <div class="atc-row"><span class="atc-key">Side</span><span class="atc-val" id="atcSide">--</span></div>
+          <div class="atc-row"><span class="atc-key">Entry</span><span class="atc-val" id="atcEntry">--</span></div>
+          <div class="atc-row"><span class="atc-key">TP target</span><span class="atc-val" id="atcTp">--</span></div>
+          <div class="atc-row"><span class="atc-key">SL stop</span><span class="atc-val" id="atcSl">--</span></div>
+        </div>
+        <button class="btn btn-close-trade" onclick="manualCloseTrade()">⚡ Close Trade Now</button>
+      </div>
+      <!-- Full settings toggle -->
+      <div style="margin-top:8px;">
+        <button class="btn btn-ghost" style="width:100%;font-size:11px" onclick="toggleFullSettings()">⚙ Full Trade Settings ▾</button>
+      </div>
+      <div id="fullSettings" style="display:none;margin-top:10px;">
+        <div class="inline-row">
+          <div class="form-row">
+            <div class="form-label">Side</div>
+            <select id="manualSide">
+              <option value="BUY">BUY</option>
+              <option value="SELL">SELL</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <div class="form-label">Order Type</div>
+            <select id="manualOrderType">
+              <option value="MARKET">Market</option>
+              <option value="LIMIT">Limit</option>
+            </select>
+          </div>
+        </div>
+        <div class="qty-mode-toggle">
+          <button class="qmt-btn active" id="manualQtyModeBase"  onclick="setQtyMode('manual','base')">Base qty</button>
+          <button class="qmt-btn"        id="manualQtyModeUsdt"  onclick="setQtyMode('manual','usdt')">USDT amount</button>
+          <button class="qmt-btn"        id="manualQtyModePct"   onclick="setQtyMode('manual','pct')">% of account</button>
+        </div>
+        <div class="inline-row">
+          <div class="form-row">
+            <div class="form-label" id="manualQtyLabel">Qty (base)</div>
+            <input type="number" id="manualQty"     value="0.001" step="0.0001" min="0"/>
+            <input type="number" id="manualQtyUsdt" value="100"   step="1"      min="0" placeholder="USDT" style="display:none"/>
+            <input type="number" id="manualQtyPct"  value="10"    step="1"      min="1" max="100" placeholder="% acct" style="display:none"/>
+          </div>
+          <div class="form-row">
+            <div class="form-label">Limit Price</div>
+            <input type="number" id="manualLimitPrice" placeholder="market" step="0.01"/>
+          </div>
+        </div>
+        <div class="inline-row">
+          <div class="form-row">
+            <div class="form-label">Leverage</div>
+            <select id="manualLeverage">
+              <option value="1">1× (spot)</option>
+              <option value="2">2×</option>
+              <option value="3">3×</option>
+              <option value="5">5×</option>
+              <option value="10">10×</option>
+              <option value="20">20×</option>
+              <option value="25">25×</option>
+              <option value="50">50×</option>
+              <option value="75">75×</option>
+              <option value="100">100×</option>
+              <option value="125">125×</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <div class="form-label">Margin Type</div>
+            <select id="manualMarginType">
+              <option value="isolated">Isolated</option>
+              <option value="crossed">Cross</option>
+            </select>
+          </div>
+        </div>
+        <div class="sub-label">Take Profit</div>
+        <div class="exit-type-toggle">
+          <button class="ett-btn active-pct" id="manualTpTypePct" onclick="setExitType('manualTp','pct')">% from entry</button>
+          <button class="ett-btn"            id="manualTpTypePrice" onclick="setExitType('manualTp','price')">Exact price</button>
+        </div>
+        <div class="inline-row">
+          <div class="form-row">
+            <div class="form-label" id="manualTpValLabel">TP %</div>
+            <input type="number" id="manualTpPct" value="2" step="0.1" min="0"/>
+            <input type="number" id="manualTpPrice" placeholder="e.g. 45000" step="0.01" min="0" style="display:none"/>
+          </div>
+          <div class="form-row">
+            <div class="form-label">TP Trigger</div>
+            <select id="manualTpMode">
+              <option value="price">Price hit</option>
+              <option value="candle">Candle close</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row" id="manualTpCandleRow" style="display:none">
+          <div class="form-label">TP Candle TF</div>
+          <select id="manualTpTf">
+            <option value="1m">1m</option><option value="5m">5m</option>
+            <option value="15m" selected>15m</option><option value="1h">1h</option>
+            <option value="4h">4h</option><option value="1d">1d</option>
+          </select>
+        </div>
+        <div class="sub-label">Stop Loss</div>
+        <div class="exit-type-toggle">
+          <button class="ett-btn active-pct" id="manualSlTypePct" onclick="setExitType('manualSl','pct')">% from entry</button>
+          <button class="ett-btn"            id="manualSlTypePrice" onclick="setExitType('manualSl','price')">Exact price</button>
+        </div>
+        <div class="inline-row">
+          <div class="form-row">
+            <div class="form-label" id="manualSlValLabel">SL %</div>
+            <input type="number" id="manualSlPct" value="1" step="0.1" min="0"/>
+            <input type="number" id="manualSlPrice" placeholder="e.g. 42000" step="0.01" min="0" style="display:none"/>
+          </div>
+          <div class="form-row">
+            <div class="form-label">SL Trigger</div>
+            <select id="manualSlMode">
+              <option value="price">Price hit</option>
+              <option value="candle">Candle close</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row" id="manualSlCandleRow" style="display:none">
+          <div class="form-label">SL Candle TF</div>
+          <select id="manualSlTf">
+            <option value="1m">1m</option><option value="5m">5m</option>
+            <option value="15m" selected>15m</option><option value="1h">1h</option>
+            <option value="4h">4h</option><option value="1d">1d</option>
+          </select>
+        </div>
+        <button class="btn btn-accent" style="width:100%;margin-top:4px" onclick="manualOpenTrade()">▶ Open Trade</button>
+      </div>
+    </div>
+
+    <!-- BOT SETTINGS -->
+    <div class="panel-section">
+      <div class="panel-title">Bot / Trend Lines</div>
+      <div class="tl-list" id="tlList">
+        <div style="font-size:11px;color:var(--muted);font-family:var(--font-mono)">No lines drawn yet.</div>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="form-row">
+          <div class="form-label">Trigger Candle TF</div>
+          <select id="triggerTf">
+            <option value="1m">1m</option><option value="5m">5m</option>
+            <option value="15m" selected>15m</option><option value="1h">1h</option>
+            <option value="4h">4h</option><option value="1d">1d</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-label">Entry Direction</div>
+          <select id="triggerDir">
+            <option value="above">Close ABOVE line → BUY</option>
+            <option value="below">Close BELOW line → SELL</option>
+          </select>
+        </div>
+        <div class="inline-row">
+          <div class="form-row">
+            <div class="form-label">Order Type</div>
+            <select id="orderType"><option value="MARKET">Market</option><option value="LIMIT">Limit</option></select>
+          </div>
+          <div class="form-row">
+            <div class="form-label" id="botQtyLabel">Qty (base)</div>
+            <div class="qty-mode-toggle" style="margin-bottom:3px;">
+              <button class="qmt-btn active" id="botQtyModeBase" onclick="setQtyMode('bot','base')">Base</button>
+              <button class="qmt-btn"        id="botQtyModeUsdt" onclick="setQtyMode('bot','usdt')">USDT</button>
+              <button class="qmt-btn"        id="botQtyModePct"  onclick="setQtyMode('bot','pct')">% acct</button>
+            </div>
+            <input type="number" id="qty"     value="0.001" step="0.0001" min="0"/>
+            <input type="number" id="botQtyUsdt" value="100"  step="1"    min="0" placeholder="USDT" style="display:none"/>
+            <input type="number" id="botQtyPct"  value="10"   step="1"    min="1" max="100" placeholder="% acct" style="display:none"/>
+          </div>
+        </div>
+        <div class="inline-row">
+          <div class="form-row">
+            <div class="form-label">Leverage</div>
+            <select id="botLeverage">
+              <option value="1">1× (spot)</option>
+              <option value="2">2×</option>
+              <option value="3">3×</option>
+              <option value="5">5×</option>
+              <option value="10">10×</option>
+              <option value="20">20×</option>
+              <option value="25">25×</option>
+              <option value="50">50×</option>
+              <option value="75">75×</option>
+              <option value="100">100×</option>
+              <option value="125">125×</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <div class="form-label">Margin Type</div>
+            <select id="botMarginType">
+              <option value="isolated">Isolated</option>
+              <option value="crossed">Cross</option>
+            </select>
+          </div>
+        </div>
+        <div class="sub-label">Take Profit</div>
+        <div class="exit-type-toggle">
+          <button class="ett-btn active-pct" id="botTpTypePct" onclick="setExitType('botTp','pct')">% from entry</button>
+          <button class="ett-btn"            id="botTpTypePrice" onclick="setExitType('botTp','price')">Exact price</button>
+        </div>
+        <div class="inline-row">
+          <div class="form-row">
+            <div class="form-label" id="botTpValLabel">TP %</div>
+            <input type="number" id="tpPct" value="2" step="0.1" min="0"/>
+            <input type="number" id="botTpPrice" placeholder="e.g. 45000" step="0.01" min="0" style="display:none"/>
+          </div>
+          <div class="form-row">
+            <div class="form-label">Trigger</div>
+            <select id="tpMode"><option value="price">Price hit</option><option value="candle">Candle close</option></select>
+          </div>
+        </div>
+        <div class="form-row" id="tpCandleRow" style="display:none">
+          <div class="form-label">TP Candle TF</div>
+          <select id="tpTf"><option value="1m">1m</option><option value="5m">5m</option><option value="15m" selected>15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1d</option></select>
+        </div>
+        <div class="sub-label">Stop Loss</div>
+        <div class="exit-type-toggle">
+          <button class="ett-btn active-pct" id="botSlTypePct" onclick="setExitType('botSl','pct')">% from entry</button>
+          <button class="ett-btn"            id="botSlTypePrice" onclick="setExitType('botSl','price')">Exact price</button>
+        </div>
+        <div class="inline-row">
+          <div class="form-row">
+            <div class="form-label" id="botSlValLabel">SL %</div>
+            <input type="number" id="slPct" value="1" step="0.1" min="0"/>
+            <input type="number" id="botSlPrice" placeholder="e.g. 42000" step="0.01" min="0" style="display:none"/>
+          </div>
+          <div class="form-row">
+            <div class="form-label">Trigger</div>
+            <select id="slMode"><option value="price">Price hit</option><option value="candle">Candle close</option></select>
+          </div>
+        </div>
+        <div class="form-row" id="slCandleRow" style="display:none">
+          <div class="form-label">SL Candle TF</div>
+          <select id="slTf"><option value="1m">1m</option><option value="5m">5m</option><option value="15m" selected>15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1d</option></select>
+        </div>
+        <div class="sub-label">Display</div>
+        <div class="toggle-row">
+          <span class="toggle-label">Show % overlay (hide $ values)</span>
+          <label class="toggle"><input type="checkbox" id="pnlToggle" onchange="togglePnlOverlay()"/><span class="toggle-slider"></span></label>
+        </div>
+        <button class="btn btn-accent" style="width:100%;margin-top:4px" id="armBtn" onclick="armBot()">▶ ARM BOT</button>
+        <button class="btn btn-danger" style="width:100%;margin-top:6px;display:none" id="disarmBtn" onclick="disarmBot()">■ DISARM BOT</button>
+      </div>
+    </div>
+
+    <!-- LOG -->
+    <div class="panel-section" style="flex:1">
+      <div class="panel-title">Activity Log</div>
+      <div class="log-box" id="logBox"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── STATE ──────────────────────────────────────
+let chart, candleSeries;
+let currentTf = '15m', currentSymbol = 'BTC_USDT';
+let candles = [], trendLines = [];
+let drawMode = false, drawStep = 0, drawP1 = null, previewLine = null;
+let selectedLineColor = '#ffffff';
+
+// exitTypeState tracks 'pct' or 'price' for each of the 4 exit inputs
+const exitTypeState = { manualTp:'pct', manualSl:'pct', botTp:'pct', botSl:'pct' };
+const qtyModeState = { manual:'base', bot:'base' };
+let pnlDisplayMode = '$';   // '$' or '%'
+let headerPnlMode  = '%';   // header badge toggles between '%' and '$'
+
+function setQtyMode(section, mode){
+  qtyModeState[section] = mode;
+  const pfx = section==='manual' ? 'manual' : 'bot';
+  const modes = ['Base','Usdt','Pct'];
+  modes.forEach(m=>{
+    const btn = document.getElementById(`${pfx}QtyMode${m}`);
+    if(btn) btn.className = 'qmt-btn' + (mode===m.toLowerCase() ? ' active' : '');
+  });
+  if(section==='manual'){
+    document.getElementById('manualQty').style.display     = mode==='base'?'block':'none';
+    document.getElementById('manualQtyUsdt').style.display = mode==='usdt'?'block':'none';
+    document.getElementById('manualQtyPct').style.display  = mode==='pct' ?'block':'none';
+    document.getElementById('manualQtyLabel').textContent  =
+      mode==='base'?'Qty (base)': mode==='usdt'?'Amount (USDT)':'% of Account';
+  } else {
+    document.getElementById('qty').style.display        = mode==='base'?'block':'none';
+    document.getElementById('botQtyUsdt').style.display = mode==='usdt'?'block':'none';
+    document.getElementById('botQtyPct').style.display  = mode==='pct' ?'block':'none';
+    document.getElementById('botQtyLabel').textContent  =
+      mode==='base'?'Qty (base)': mode==='usdt'?'Amount (USDT)':'% of Account';
+  }
+}
+
+function resolveQty(section, entryPrice){
+  const mode = qtyModeState[section];
+  if(section==='manual'){
+    if(mode==='base') return parseFloat(document.getElementById('manualQty').value)||0.001;
+    if(mode==='usdt'){
+      const usdt = parseFloat(document.getElementById('manualQtyUsdt').value)||100;
+      return entryPrice>0 ? usdt/entryPrice : 0.001;
+    }
+    if(mode==='pct'){
+      const pct  = parseFloat(document.getElementById('manualQtyPct').value)||10;
+      const bal  = getStartBalance();
+      const usdt = bal*(pct/100);
+      return entryPrice>0 ? usdt/entryPrice : 0.001;
+    }
+  } else {
+    if(mode==='base') return parseFloat(document.getElementById('qty').value)||0.001;
+    if(mode==='usdt'){
+      const usdt = parseFloat(document.getElementById('botQtyUsdt').value)||100;
+      return entryPrice>0 ? usdt/entryPrice : 0.001;
+    }
+    if(mode==='pct'){
+      const pct  = parseFloat(document.getElementById('botQtyPct').value)||10;
+      const bal  = getStartBalance();
+      const usdt = bal*(pct/100);
+      return entryPrice>0 ? usdt/entryPrice : 0.001;
+    }
+  }
+  return 0.001;
+}
+
+function setPnlMode(mode){
+  pnlDisplayMode = mode;
+  document.getElementById('pnlModeBtn$').className = 'pms-btn'+(mode==='$'?' active':'');
+  document.getElementById('pnlModeBtn%').className = 'pms-btn'+(mode==='%'?' active':'');
+  updateAccountBadge(lastPrice); // re-render with new mode
+}
+
+function toggleHeaderPnlMode(){
+  headerPnlMode = headerPnlMode==='%' ? '$' : '%';
+  updateAccountBadge(lastPrice);
+}
+
+function setExitType(id, type){
+  exitTypeState[id] = type;
+  const pctBtn   = document.getElementById(id+'TypePct');
+  const priceBtn = document.getElementById(id+'TypePrice');
+  pctBtn.className   = 'ett-btn' + (type==='pct'  ? ' active-pct'   : '');
+  priceBtn.className = 'ett-btn' + (type==='price' ? ' active-price' : '');
+  // Map id to the correct input/label elements
+  const map = {
+    manualTp: { pctInput:'manualTpPct', priceInput:'manualTpPrice', label:'manualTpValLabel', pctLabel:'TP %', priceLabel:'TP Price' },
+    manualSl: { pctInput:'manualSlPct', priceInput:'manualSlPrice', label:'manualSlValLabel', pctLabel:'SL %', priceLabel:'SL Price' },
+    botTp:    { pctInput:'tpPct',       priceInput:'botTpPrice',    label:'botTpValLabel',    pctLabel:'TP %', priceLabel:'TP Price' },
+    botSl:    { pctInput:'slPct',       priceInput:'botSlPrice',    label:'botSlValLabel',    pctLabel:'SL %', priceLabel:'SL Price' },
+  };
+  const m = map[id];
+  document.getElementById(m.pctInput).style.display   = type==='pct'  ?'block':'none';
+  document.getElementById(m.priceInput).style.display = type==='price'?'block':'none';
+  document.getElementById(m.label).textContent = type==='pct' ? m.pctLabel : m.priceLabel;
+}
+
+function resolveExitPrice(id, entryPrice, side){
+  // Returns the absolute price for TP or SL given the current mode
+  const map = {
+    manualTp: { pctInput:'manualTpPct', priceInput:'manualTpPrice', isTp:true  },
+    manualSl: { pctInput:'manualSlPct', priceInput:'manualSlPrice', isTp:false },
+    botTp:    { pctInput:'tpPct',       priceInput:'botTpPrice',    isTp:true  },
+    botSl:    { pctInput:'slPct',       priceInput:'botSlPrice',    isTp:false },
+  };
+  const m = map[id];
+  if(exitTypeState[id]==='price'){
+    const p = parseFloat(document.getElementById(m.priceInput).value);
+    if(!p || isNaN(p)){ alert(`Enter a valid exact price for ${id}`); return null; }
+    return p;
+  } else {
+    const pct = parseFloat(document.getElementById(m.pctInput).value)/100;
+    if(m.isTp) return side==='BUY' ? entryPrice*(1+pct) : entryPrice*(1-pct);
+    else        return side==='BUY' ? entryPrice*(1-pct) : entryPrice*(1+pct);
+  }
+}
+
+function selectLineColor(el){
+  document.querySelectorAll('.lc-swatch').forEach(s=>s.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedLineColor = el.dataset.color;
+  // sync custom picker
+  document.getElementById('customColorPicker').value = selectedLineColor;
+}
+
+function selectCustomColor(input){
+  selectedLineColor = input.value;
+  document.querySelectorAll('.lc-swatch').forEach(s=>s.classList.remove('selected'));
+  // no swatch gets selected — the input itself is highlighted by the browser
+}
+let botArmed = false, watchInterval = null, lastPrice = null, openDay = null;
+let pnlOverlayOn = false;
+let activeTrade = null;
+let lastTpCandleTime = null, lastSlCandleTime = null;
+let candleExitInterval = null;
+
+// Account P&L tracking
+let startingBalance = 1000;  // user sets this
+let realizedPnlDollars = 0;  // sum of closed trade profits/losses in $
+let tradeCount = 0;
+
+const PROXY = 'https://mexc-proxy-production.up.railway.app';
+const PROXY_SECRET = 'S2103270boxer1984@'; // must match PROXY_SECRET in Railway
+const FUTURES_BASE  = 'https://contract.mexc.com';  // futures REST
+const SPOT_BASE     = 'https://api.mexc.com';        // kept only for reference
+// cors-anywhere proxy: proxy_url/https://target.host/path
+function api(p){ return PROXY ? `${PROXY}/${FUTURES_BASE}${p}` : `${FUTURES_BASE}${p}`; }
+
+// All fetch calls go through proxyFetch so the secret header is always included
+async function proxyFetch(url, options={}){
+  if(PROXY && PROXY_SECRET){
+    options.headers = options.headers || {};
+    options.headers['x-proxy-secret'] = PROXY_SECRET;
+  }
+  return fetch(url, options);
+}
+// MEXC Futures kline intervals
+const TF_MAP = {'1m':'Min1','5m':'Min5','15m':'Min15','1h':'Hour1','4h':'Hour4','1d':'Day1'};
+
+// ── ACCOUNT P&L ────────────────────────────────
+function getStartBalance(){ return parseFloat(document.getElementById('startBalance').value)||1000; }
+
+function updateAccountBadge(currentPrice){
+  const bal = getStartBalance();
+  let unrealizedDollars = 0;
+  if(activeTrade && currentPrice){
+    const {side, entryPrice, qty, leverage=1} = activeTrade;
+    const dir = side==='BUY'?1:-1;
+    unrealizedDollars = (currentPrice - entryPrice) * qty * dir * leverage;
+  }
+  const totalPnl = realizedPnlDollars + unrealizedDollars;
+  const pct      = (totalPnl / bal * 100);
+  const sign     = totalPnl>=0?'+':'';
+  const el       = document.getElementById('acctPct');
+
+  // Header badge toggles between % and $ on click
+  if(headerPnlMode==='%'){
+    el.textContent = `${sign}${pct.toFixed(2)}%`;
+  } else {
+    el.textContent = `${sign}$${Math.abs(totalPnl).toFixed(2)}`;
+  }
+  el.className = `acct-pct ${pct>0?'pos':pct<0?'neg':'zero'}`;
+
+  // Realized P&L line: respects pnlDisplayMode switch
+  if(pnlDisplayMode==='$'){
+    document.getElementById('realizedPnl').textContent =
+      `${realizedPnlDollars>=0?'+':''}$${realizedPnlDollars.toFixed(2)}`;
+  } else {
+    const rPct = bal>0?(realizedPnlDollars/bal*100):0;
+    document.getElementById('realizedPnl').textContent =
+      `${rPct>=0?'+':''}${rPct.toFixed(2)}%`;
+  }
+  document.getElementById('tradeCount').textContent = tradeCount;
+  // update overlay acct line
+  if(pnlOverlayOn && activeTrade){
+    const acctEl = document.getElementById('tmAcctPct');
+    acctEl.textContent = `acct: ${sign}${pct.toFixed(2)}%`;
+    acctEl.className = `tm-acct-pct ${pct>=0?'positive':'negative'}`;
+  }
+}
+
+function resetAccountPnl(){
+  realizedPnlDollars = 0;
+  tradeCount = 0;
+  updateAccountBadge(lastPrice);
+  log('Account P&L reset.','warn');
+}
+
+async function fetchAccountBalance(){
+  const apiKey    = document.getElementById('apiKey').value.trim();
+  const apiSecret = document.getElementById('apiSecret').value.trim();
+  const statusEl  = document.getElementById('balanceStatus');
+  if(!apiKey || !apiSecret){
+    log('Enter API Key & Secret before syncing balance.','err');
+    return;
+  }
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = '↻ Fetching balance...';
+  try{
+    const timestamp = Date.now();
+    // MEXC Futures signed request: sign the raw timestamp string
+    const signature = await signHmac(apiSecret, apiKey + timestamp);
+    const res = await proxyFetch(api(`/api/v1/private/account/assets`),{
+      headers:{
+        'ApiKey': apiKey,
+        'Request-Time': String(timestamp),
+        'Signature': signature,
+        'Content-Type': 'application/json'
+      }
+    });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if(!data.success) throw new Error(data.message||'Account fetch failed');
+    const assets = data.data || [];
+    const usdt   = assets.find(a => a.currency === 'USDT');
+    const free   = usdt ? parseFloat(usdt.availableBalance) : 0;
+    const frozen = usdt ? parseFloat(usdt.frozenBalance)    : 0;
+    const total  = free + frozen;
+    document.getElementById('startBalance').value = total.toFixed(2);
+    realizedPnlDollars = 0;
+    tradeCount = 0;
+    updateAccountBadge(lastPrice);
+    statusEl.style.color = 'var(--accent)';
+    statusEl.textContent = `✓ Futures USDT: $${total.toFixed(2)}  (available: $${free.toFixed(2)}  frozen: $${frozen.toFixed(2)})`;
+    log(`Futures account synced — USDT: $${total.toFixed(2)} (available: $${free.toFixed(2)}, frozen: $${frozen.toFixed(2)})`,'ok');
+    const others = assets.filter(a => a.currency !== 'USDT' && (parseFloat(a.availableBalance)+parseFloat(a.frozenBalance)) > 0);
+    if(others.length){
+      log(`Other assets: ${others.map(a=>`${a.currency}: ${(parseFloat(a.availableBalance)+parseFloat(a.frozenBalance)).toFixed(4)}`).join(' | ')}`,'info');
+    }
+  }catch(e){
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = `✗ ${e.message} — check keys or enable CORS proxy`;
+    log(`Balance fetch failed: ${e.message}`,'err');
+  }
+}
+
+// ── CHART INIT ─────────────────────────────────
+function initChart(){
+  const container = document.getElementById('chart');
+  chart = LightweightCharts.createChart(container,{
+    layout:{background:{color:'#0d0f14'},textColor:'#6b7494'},
+    grid:{vertLines:{color:'#1a1e28'},horzLines:{color:'#1a1e28'}},
+    crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
+    rightPriceScale:{borderColor:'#252a38'},
+    timeScale:{borderColor:'#252a38',timeVisible:true,secondsVisible:false},
+  });
+  candleSeries = chart.addCandlestickSeries({
+    upColor:'#00c896',downColor:'#ff4d6a',
+    borderUpColor:'#00c896',borderDownColor:'#ff4d6a',
+    wickUpColor:'#00c896',wickDownColor:'#ff4d6a',
+  });
+  new ResizeObserver(()=>chart.applyOptions({width:container.clientWidth,height:container.clientHeight})).observe(container);
+  chart.applyOptions({width:container.clientWidth,height:container.clientHeight});
+  chart.subscribeClick(param=>{
+    if(!drawMode||!param.time) return;
+    const price = candleSeries.coordinateToPrice(param.point.y);
+    if(price!=null) handleDrawClick({time:param.time,price});
+  });
+  chart.subscribeCrosshairMove(param=>{
+    if(!drawMode||drawStep!==1||!param.time) return;
+    const price = candleSeries.coordinateToPrice(param.point.y);
+    if(price!=null) updatePreview({time:param.time,price});
+  });
+}
+
+// ── CANDLE LOADING ─────────────────────────────
+async function loadCandles(){
+  currentSymbol = document.getElementById('symbolInput').value.trim().toUpperCase();
+  log(`Loading ${currentSymbol} ${currentTf} [futures]...`,'info');
+  try{
+    const interval = TF_MAP[currentTf]||'Min15';
+    const res = await proxyFetch(api(`/api/v1/contract/kline/${currentSymbol}?interval=${interval}&limit=300`));
+    if(!res.ok){
+      const txt = await res.text().catch(()=>'');
+      throw new Error(`HTTP ${res.status} — ${txt.slice(0,120)}`);
+    }
+    const d = await res.json();
+    if(!d.success) throw new Error(d.message||JSON.stringify(d).slice(0,120));
+    const { time, open, high, low, close } = d.data;
+    candles = time.map((t,i)=>({
+      time:  parseInt(t),
+      open:  parseFloat(open[i]),
+      high:  parseFloat(high[i]),
+      low:   parseFloat(low[i]),
+      close: parseFloat(close[i]),
+    }));
+    candleSeries.setData(candles);
+    chart.timeScale().fitContent();
+    updatePrice(candles[candles.length-1].close);
+    openDay = candles[0].open;
+    log(`Loaded ${candles.length} candles for ${currentSymbol}`,'ok');
+    startPricePoll();
+  }catch(e){ log(`Load failed: ${e.message}`,'err'); }
+}
+
+function startPricePoll(){
+  if(watchInterval) clearInterval(watchInterval);
+  watchInterval = setInterval(async()=>{
+    try{
+      const res = await proxyFetch(api(`/api/v1/contract/ticker?symbol=${currentSymbol}`));
+      if(!res.ok){ log(`Price poll HTTP ${res.status}`,'warn'); return; }
+      const d = await res.json();
+      if(!d.success){ log(`Ticker error: ${d.message||'unknown'}`,'warn'); return; }
+      const ticker = Array.isArray(d.data) ? d.data[0] : d.data;
+      if(!ticker){ log('No ticker data returned','warn'); return; }
+      const p = parseFloat(ticker.lastPrice);
+      updatePrice(p);
+      updateAccountBadge(p);
+      if(botArmed) checkTriggers();
+      if(activeTrade){ checkPriceExits(p); if(pnlOverlayOn) updatePnlOverlay(p); }
+    }catch{}
+  },3000);
+}
+
+function updatePrice(p){
+  lastPrice = p;
+  const fmt = p<1?p.toFixed(6):p<100?p.toFixed(4):p.toFixed(2);
+  document.getElementById('priceDisplay').textContent = fmt;
+  if(openDay){
+    const chg = ((p-openDay)/openDay*100).toFixed(2);
+    const el = document.getElementById('priceChange');
+    el.textContent = (chg>=0?'▲ +':'▼ ')+chg+'%';
+    el.style.color = chg>=0?'var(--accent)':'var(--danger)';
+  }
+}
+
+document.getElementById('tfBtns').addEventListener('click',e=>{
+  if(!e.target.dataset.tf) return;
+  document.querySelectorAll('.tf-btn').forEach(b=>b.classList.remove('active'));
+  e.target.classList.add('active');
+  currentTf = e.target.dataset.tf;
+  loadCandles();
+});
+
+// ── DRAWING ────────────────────────────────────
+function toggleDrawMode(){
+  drawMode=!drawMode; drawStep=0; drawP1=null; removePreview();
+  const btn=document.getElementById('drawBtn'), ind=document.getElementById('modeIndicator'), hint=document.getElementById('drawHint');
+  if(drawMode){ btn.style.background='var(--warn)';btn.style.color='#000';btn.textContent='✕ Cancel';ind.classList.add('visible');hint.textContent='Click point 1'; }
+  else{ btn.style.background='';btn.style.color='';btn.textContent='✏ Draw Line';ind.classList.remove('visible');hint.textContent=''; }
+}
+function handleDrawClick(pt){
+  if(drawStep===0){ drawP1=pt;drawStep=1;document.getElementById('drawHint').textContent='Click point 2';document.getElementById('modeIndicator').textContent='DRAWING — click second point'; }
+  else{ removePreview();addTrendLine(drawP1,pt);drawStep=0;drawP1=null;toggleDrawMode(); }
+}
+function updatePreview(pt2){
+  if(previewLine){try{chart.removeSeries(previewLine);}catch{}}
+  // preview uses selected colour at 60% opacity
+  const hex = selectedLineColor||'#3d7fff';
+  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  const previewColor = `rgba(${r},${g},${b},0.55)`;
+  previewLine=chart.addLineSeries({color:previewColor,lineWidth:1,lineStyle:2,lastValueVisible:false,priceLineVisible:false});
+  previewLine.setData(buildLinePoints(drawP1,pt2));
+}
+function removePreview(){ if(previewLine){try{chart.removeSeries(previewLine);}catch{}previewLine=null;} }
+
+// ── TREND LINES ────────────────────────────────
+let tlIdCounter=0;
+function buildLinePoints(p1,p2){
+  const times=candles.map(c=>c.time);
+  if(!times.length) return[p1,p2];
+  const slope=(p2.price-p1.price)/(p2.time-p1.time);
+  const pts=[];
+  for(const t of times){
+    if(t>=Math.min(p1.time,p2.time)-86400)
+      pts.push({time:t,value:p1.price+slope*(t-p1.time)});
+  }
+  return pts.length>=2?pts:[{time:p1.time,value:p1.price},{time:p2.time,value:p2.price}];
+}
+function priceOnLineAt(tl,t){
+  const slope=(tl.p2.price-tl.p1.price)/(tl.p2.time-tl.p1.time);
+  return tl.p1.price+slope*(t-tl.p1.time);
+}
+function addTrendLine(p1,p2){
+  const id=++tlIdCounter;
+  const color = selectedLineColor || '#ffffff';
+  const s=chart.addLineSeries({color,lineWidth:2,lastValueVisible:false,priceLineVisible:false});
+  s.setData(buildLinePoints(p1,p2));
+  trendLines.push({id,p1,p2,series:s,armed:false,color});
+  renderTlList();
+  log(`Line #${id} drawn [${color}]`,'ok');
+}
+function removeTrendLine(id){
+  const idx=trendLines.findIndex(t=>t.id===id);
+  if(idx===-1)return;
+  try{chart.removeSeries(trendLines[idx].series);}catch{}
+  trendLines.splice(idx,1);
+  renderTlList();
+}
+function clearAllLines(){ trendLines.forEach(tl=>{try{chart.removeSeries(tl.series);}catch{}});trendLines=[];renderTlList(); }
+function renderTlList(){
+  const box=document.getElementById('tlList');
+  if(!trendLines.length){ box.innerHTML='<div style="font-size:11px;color:var(--muted);font-family:var(--font-mono)">No lines drawn yet.</div>';return; }
+  box.innerHTML=trendLines.map(tl=>`
+    <div class="tl-item ${tl.armed?'armed':''}" id="tlitem-${tl.id}">
+      <div style="width:10px;height:10px;border-radius:50%;background:${tl.color||'#3d7fff'};flex-shrink:0;margin-right:2px;border:1px solid rgba(255,255,255,.2)"></div>
+      <div class="tl-item-info">
+        <div class="tl-name">Line #${tl.id}</div>
+        <div class="tl-meta">${tl.armed?'🟢 ARMED':'⚪ idle'} | P1:$${tl.p1.price.toFixed(2)} P2:$${tl.p2.price.toFixed(2)}</div>
+      </div>
+      <button class="tl-del" onclick="removeTrendLine(${tl.id})">✕</button>
+    </div>`).join('');
+}
+
+// ── MANUAL TRADE ───────────────────────────────
+function toggleFullSettings(){
+  const el=document.getElementById('fullSettings');
+  el.style.display=el.style.display==='none'?'block':'none';
+}
+document.getElementById('manualTpMode').addEventListener('change',function(){
+  document.getElementById('manualTpCandleRow').style.display=this.value==='candle'?'flex':'none';
+});
+document.getElementById('manualSlMode').addEventListener('change',function(){
+  document.getElementById('manualSlCandleRow').style.display=this.value==='candle'?'flex':'none';
+});
+document.getElementById('tpMode').addEventListener('change',function(){
+  document.getElementById('tpCandleRow').style.display=this.value==='candle'?'flex':'none';
+});
+document.getElementById('slMode').addEventListener('change',function(){
+  document.getElementById('slCandleRow').style.display=this.value==='candle'?'flex':'none';
+});
+
+function quickTrade(side){
+  if(activeTrade){ log('Close current trade first.','err'); return; }
+  if(!lastPrice){ log('No price loaded yet.','err'); return; }
+  // Use settings from full settings panel for TP/SL
+  const entryPriceEst = lastPrice||1;
+  const qty        = resolveQty('manual', entryPriceEst);
+  const leverage   = parseInt(document.getElementById('manualLeverage').value)||1;
+  const marginType = document.getElementById('manualMarginType').value;
+  const tpMode = document.getElementById('manualTpMode').value;
+  const slMode = document.getElementById('manualSlMode').value;
+  const tpTf   = document.getElementById('manualTpTf').value;
+  const slTf   = document.getElementById('manualSlTf').value;
+  const entryPrice = lastPrice;
+  const tpPrice = resolveExitPrice('manualTp', entryPrice, side);
+  const slPrice = resolveExitPrice('manualSl', entryPrice, side);
+  if(tpPrice===null || slPrice===null) return;
+  log(`Quick ${side} @ $${entryPrice.toFixed(4)} | ${leverage}× ${marginType} | TP: $${tpPrice.toFixed(4)} | SL: $${slPrice.toFixed(4)}`,'info');
+  executeEntry({side, entryPrice, tpPrice, slPrice, qty, leverage, marginType, tpMode, slMode, tpTf, slTf, orderType:'MARKET'});
+}
+
+function manualOpenTrade(){
+  if(activeTrade){ log('Close current trade first.','err'); return; }
+  if(!lastPrice){ log('No price loaded yet.','err'); return; }
+  const side       = document.getElementById('manualSide').value;
+  const orderType  = document.getElementById('manualOrderType').value;
+  const entryPriceEst = lastPrice||1;
+  const qty        = resolveQty('manual', entryPriceEst);
+  const leverage   = parseInt(document.getElementById('manualLeverage').value)||1;
+  const marginType = document.getElementById('manualMarginType').value;
+  const limitPrice = parseFloat(document.getElementById('manualLimitPrice').value)||lastPrice;
+  const tpMode     = document.getElementById('manualTpMode').value;
+  const slMode     = document.getElementById('manualSlMode').value;
+  const tpTf       = document.getElementById('manualTpTf').value;
+  const slTf       = document.getElementById('manualSlTf').value;
+  const entryPrice = orderType==='LIMIT' ? limitPrice : lastPrice;
+  const tpPrice = resolveExitPrice('manualTp', entryPrice, side);
+  const slPrice = resolveExitPrice('manualSl', entryPrice, side);
+  if(tpPrice===null || slPrice===null) return;
+  executeEntry({side, entryPrice, tpPrice, slPrice, qty, leverage, marginType, tpMode, slMode, tpTf, slTf, orderType});
+}
+
+function manualCloseTrade(){
+  if(!activeTrade){ log('No active trade to close.','warn'); return; }
+  const price = lastPrice || activeTrade.entryPrice;
+  log('Manual close triggered.','warn');
+  exitTrade('MANUAL', price, 'manual');
+}
+
+// ── BOT ARM / DISARM ───────────────────────────
+function armBot(){
+  if(!trendLines.length){ log('Draw at least one trend line first.','err'); return; }
+  const apiKey=document.getElementById('apiKey').value.trim();
+  const apiSecret=document.getElementById('apiSecret').value.trim();
+  if(!apiKey||!apiSecret){ log('Enter API Key & Secret.','err'); return; }
+  botArmed=true;
+  trendLines.forEach(tl=>tl.armed=true);
+  renderTlList();
+  document.getElementById('armBtn').style.display='none';
+  document.getElementById('disarmBtn').style.display='block';
+  document.getElementById('connPill').className='pill pill-green';
+  document.getElementById('connPill').textContent='● BOT ARMED';
+  log(`Bot armed on ${trendLines.length} line(s)`,'ok');
+}
+function disarmBot(){
+  botArmed=false;
+  trendLines.forEach(tl=>tl.armed=false);
+  renderTlList();
+  document.getElementById('armBtn').style.display='block';
+  document.getElementById('disarmBtn').style.display='none';
+  document.getElementById('connPill').className='pill pill-grey';
+  document.getElementById('connPill').textContent='● NOT CONNECTED';
+  log('Bot disarmed.','warn');
+}
+
+// ── TRIGGER CHECK ──────────────────────────────
+let lastCandleTime=null;
+async function checkTriggers(){
+  if(!botArmed||!trendLines.length||activeTrade) return;
+  const trigTf=document.getElementById('triggerTf').value;
+  try{
+    const interval=TF_MAP[trigTf]||'Min15';
+    const res=await proxyFetch(api(`/api/v1/contract/kline/${currentSymbol}?interval=${interval}&limit=3`));
+    const data=await res.json();
+    if(!data.success||!data.data) return;
+    const {time,close}=data.data;
+    if(!time||time.length<2) return;
+    // Second-to-last = last fully closed candle
+    const idx=time.length-2;
+    const candleTime=parseInt(time[idx])*1000;
+    const closePrice=parseFloat(close[idx]);
+    if(candleTime===lastCandleTime) return;
+    lastCandleTime=candleTime;
+    const dir=document.getElementById('triggerDir').value;
+    for(const tl of trendLines){
+      if(!tl.armed) continue;
+      const linePrice=priceOnLineAt(tl,Math.floor(candleTime/1000));
+      const triggered=(dir==='above'&&closePrice>linePrice)||(dir==='below'&&closePrice<linePrice);
+      if(triggered){
+        log(`🔔 Line #${tl.id} — candle closed ${dir} @ $${closePrice.toFixed(4)}`,'ok');
+        const side=dir==='above'?'BUY':'SELL';
+        const qty        = resolveQty('bot', closePrice);
+        const leverage   = parseInt(document.getElementById('botLeverage').value)||1;
+        const marginType = document.getElementById('botMarginType').value;
+        const tpMode=document.getElementById('tpMode').value;
+        const slMode=document.getElementById('slMode').value;
+        const tpTf=document.getElementById('tpTf').value;
+        const slTf=document.getElementById('slTf').value;
+        const tpPrice=resolveExitPrice('botTp', closePrice, side);
+        const slPrice=resolveExitPrice('botSl', closePrice, side);
+        if(tpPrice===null||slPrice===null) continue;
+        tl.armed=false;
+        tl.series.applyOptions({color:'#f5a623'});
+        renderTlList();
+        await executeEntry({side,entryPrice:closePrice,tpPrice,slPrice,qty,leverage,marginType,tpMode,slMode,tpTf,slTf,orderType:document.getElementById('orderType').value});
+      }
+    }
+    if(trendLines.every(t=>!t.armed)&&!activeTrade) disarmBot();
+  }catch(e){ log(`Trigger check: ${e.message}`,'err'); }
+}
+
+// ── EXECUTE ENTRY ──────────────────────────────
+async function executeEntry({side,entryPrice,tpPrice,slPrice,qty,leverage=1,marginType='isolated',tpMode,slMode,tpTf,slTf,orderType}){
+  const apiKey=document.getElementById('apiKey').value.trim();
+  const apiSecret=document.getElementById('apiSecret').value.trim();
+  const leverageLabel = leverage>1 ? ` | ${leverage}× ${marginType}` : '';
+  log(`${side} ${orderType}${leverageLabel} | Qty:${qty} | Entry:$${entryPrice.toFixed(4)} | TP:+${((tpPrice/entryPrice-1)*100).toFixed(2)}% | SL:-${((1-slPrice/entryPrice)*100).toFixed(2)}%`,'info');
+  // Set leverage on futures if > 1
+  if(leverage > 1){
+    try{
+      const ts=Date.now();
+      const openType = marginType==='isolated' ? 1 : 2;
+      const levBody  = JSON.stringify({symbol:currentSymbol, leverage, openType});
+      const levSig   = await signHmac(apiSecret, apiKey+ts);
+      const lr=await proxyFetch(api('/api/v1/private/position/change_leverage'),{
+        method:'POST',
+        headers:{'ApiKey':apiKey,'Request-Time':String(ts),'Signature':levSig,'Content-Type':'application/json'},
+        body: levBody,
+      });
+      const ld=await lr.json();
+      if(ld.success) log(`Leverage set: ${leverage}× ${marginType}`,'ok');
+      else log(`Leverage warning: ${JSON.stringify(ld)} — continuing`,'warn');
+    }catch(e){ log(`Leverage set failed: ${e.message} — continuing anyway`,'warn'); }
+  }
+  try{
+    const timestamp = Date.now();
+    // Futures side: 1=open_long(buy), 3=open_short(sell)
+    const futuresSide = side==='BUY' ? 1 : 3;
+    // Futures type: 5=market, 1=limit
+    const futuresType = orderType==='MARKET' ? 5 : 1;
+    const openType    = (marginType||'isolated')==='isolated' ? 1 : 2;
+    const orderBody   = JSON.stringify({
+      symbol:   currentSymbol,
+      price:    orderType==='LIMIT' ? entryPrice : 0,
+      vol:      qty,
+      side:     futuresSide,
+      type:     futuresType,
+      openType: openType,
+      leverage: leverage||1,
+    });
+    const signature = await signHmac(apiSecret, apiKey+timestamp);
+    const res = await proxyFetch(api('/api/v1/private/order/submit'),{
+      method:'POST',
+      headers:{'ApiKey':apiKey,'Request-Time':String(timestamp),'Signature':signature,'Content-Type':'application/json'},
+      body: orderBody,
+    });
+    const d = await res.json();
+    if(d.success){
+      log(`✅ Futures order placed! ID:${d.data}`,'ok');
+      registerTrade({side,entryPrice,tpPrice,slPrice,qty,leverage,tpMode,slMode,tpTf,slTf});
+    } else {
+      log(`Order error: ${d.message||JSON.stringify(d)}`,'err');
+    }
+  }catch(e){ log(`Order failed: ${e.message}`,'err'); }
+}
+
+function registerTrade(trade){
+  activeTrade=trade;
+  lastTpCandleTime=null; lastSlCandleTime=null;
+  tradeCount++;
+  // Show active trade card
+  document.getElementById('activeTradeCard').style.display='block';
+  document.getElementById('atcSide').textContent=trade.side;
+  document.getElementById('atcSide').style.color=trade.side==='BUY'?'var(--accent)':'var(--danger)';
+  const lev = trade.leverage||1;
+  document.getElementById('atcEntry').textContent=`$${trade.entryPrice.toFixed(4)}${lev>1?' ('+lev+'×)':''}`;
+  document.getElementById('atcTp').textContent=`+${(Math.abs(trade.tpPrice-trade.entryPrice)/trade.entryPrice*100).toFixed(2)}% [${trade.tpMode}]`;
+  document.getElementById('atcSl').textContent=`-${(Math.abs(trade.slPrice-trade.entryPrice)/trade.entryPrice*100).toFixed(2)}% [${trade.slMode}]`;
+  if(pnlOverlayOn) document.getElementById('tradeMonitor').classList.add('visible');
+  if(candleExitInterval) clearInterval(candleExitInterval);
+  candleExitInterval=setInterval(checkCandleExits,5000);
+  updateAccountBadge(lastPrice);
+}
+
+// ── EXIT CHECKS ────────────────────────────────
+function checkPriceExits(p){
+  if(!activeTrade) return;
+  const{side,tpPrice,slPrice,tpMode,slMode}=activeTrade;
+  if(tpMode==='price'){
+    const hit=side==='BUY'?p>=tpPrice:p<=tpPrice;
+    if(hit){exitTrade('TP',p,'price hit');return;}
+  }
+  if(slMode==='price'){
+    const hit=side==='BUY'?p<=slPrice:p>=slPrice;
+    if(hit){exitTrade('SL',p,'price hit');return;}
+  }
+}
+
+async function checkCandleExits(){
+  if(!activeTrade) return;
+  const{side,tpPrice,slPrice,tpMode,slMode,tpTf,slTf}=activeTrade;
+  if(tpMode==='candle'){
+    try{
+      const res=await proxyFetch(api(`/api/v1/contract/kline/${currentSymbol}?interval=${TF_MAP[tpTf]||'Min15'}&limit=3`));
+      const data=await res.json();
+      if(data.success&&data.data&&data.data.time&&data.data.time.length>=2){
+        const idx=data.data.time.length-2;
+        const ct=parseInt(data.data.time[idx])*1000;
+        if(ct!==lastTpCandleTime){
+          lastTpCandleTime=ct;
+          const cp=parseFloat(data.data.close[idx]);
+          const hit=side==='BUY'?cp>=tpPrice:cp<=tpPrice;
+          if(hit){exitTrade('TP',cp,'candle close');return;}
+        }
+      }
+    }catch{}
+  }
+  if(slMode==='candle'){
+    try{
+      const res=await proxyFetch(api(`/api/v1/contract/kline/${currentSymbol}?interval=${TF_MAP[slTf]||'Min15'}&limit=3`));
+      const data=await res.json();
+      if(data.success&&data.data&&data.data.time&&data.data.time.length>=2){
+        const idx=data.data.time.length-2;
+        const ct=parseInt(data.data.time[idx])*1000;
+        if(ct!==lastSlCandleTime){
+          lastSlCandleTime=ct;
+          const cp=parseFloat(data.data.close[idx]);
+          const hit=side==='BUY'?cp<=slPrice:cp>=slPrice;
+          if(hit){exitTrade('SL',cp,'candle close');return;}
+        }
+      }
+    }catch{}
+  }
+}
+
+function exitTrade(reason, price, method){
+  if(!activeTrade) return;
+  const{entryPrice,side,qty,leverage=1}=activeTrade;
+  const dir=side==='BUY'?1:-1;
+  const dollarPnl=(price-entryPrice)*qty*dir*leverage;
+  const tradePct=(price-entryPrice)/entryPrice*100*dir*leverage;
+  const bal=getStartBalance();
+  const acctPct=dollarPnl/bal*100;
+  const sign=dollarPnl>=0?'+':'';
+  const leverageLabel=leverage>1?` (${leverage}×)`:'';
+  realizedPnlDollars+=dollarPnl;
+  log(`🏁 ${reason} via ${method}${leverageLabel} | Trade: ${sign}${tradePct.toFixed(2)}% | Account: ${sign}${acctPct.toFixed(2)}%`, dollarPnl>=0?'ok':'err');
+  activeTrade=null;
+  if(candleExitInterval){clearInterval(candleExitInterval);candleExitInterval=null;}
+  document.getElementById('tradeMonitor').classList.remove('visible');
+  document.getElementById('activeTradeCard').style.display='none';
+  updateAccountBadge(lastPrice);
+  // Place exit order
+  const exitSide=side==='BUY'?'SELL':'BUY';
+  placeExitOrder(exitSide,qty);
+}
+
+async function placeExitOrder(side,qty){
+  const apiKey    = document.getElementById('apiKey').value.trim();
+  const apiSecret = document.getElementById('apiSecret').value.trim();
+  try{
+    const timestamp = Date.now();
+    // Futures close sides: SELL (closing long) = 4, BUY (closing short) = 2
+    const futuresSide = side==='SELL' ? 4 : 2;
+    const orderBody   = JSON.stringify({
+      symbol:   currentSymbol,
+      price:    0,
+      vol:      qty,
+      side:     futuresSide,
+      type:     5, // market
+      openType: 1,
+    });
+    const signature = await signHmac(apiSecret, apiKey+timestamp);
+    const res = await proxyFetch(api('/api/v1/private/order/submit'),{
+      method: 'POST',
+      headers:{'ApiKey':apiKey,'Request-Time':String(timestamp),'Signature':signature,'Content-Type':'application/json'},
+      body: orderBody,
+    });
+    const d = await res.json();
+    if(d.success) log(`✅ Exit order placed. ID:${d.data}`,'ok');
+    else log(`Exit error: ${d.message||JSON.stringify(d)}`,'err');
+  }catch(e){ log(`Exit failed: ${e.message}`,'err'); }
+}
+
+// ── P&L OVERLAY ────────────────────────────────
+function togglePnlOverlay(){
+  pnlOverlayOn=document.getElementById('pnlToggle').checked;
+  if(pnlOverlayOn&&activeTrade) document.getElementById('tradeMonitor').classList.add('visible');
+  else document.getElementById('tradeMonitor').classList.remove('visible');
+}
+
+function updatePnlOverlay(p){
+  if(!activeTrade||!pnlOverlayOn) return;
+  const{entryPrice,tpPrice,slPrice,side,qty,leverage=1}=activeTrade;
+  const dir=side==='BUY'?1:-1;
+  const rawPct=(p-entryPrice)/entryPrice*100*dir*leverage;
+  const dollarPnl=(p-entryPrice)*qty*dir*leverage;
+  const bal=getStartBalance();
+  const acctPct=(realizedPnlDollars+dollarPnl)/bal*100;
+  const sign=rawPct>=0?'+':'';
+  const acctSign=acctPct>=0?'+':'';
+  const el=document.getElementById('tmPct');
+  el.textContent=`${sign}${rawPct.toFixed(2)}%`;
+  el.className=`tm-pct ${rawPct>=0?'positive':'negative'}`;
+  const acctEl=document.getElementById('tmAcctPct');
+  acctEl.textContent=`acct: ${acctSign}${acctPct.toFixed(2)}%`;
+  acctEl.className=`tm-acct-pct ${acctPct>=0?'positive':'negative'}`;
+  const tpPctTotal=Math.abs((tpPrice-entryPrice)/entryPrice*100);
+  const slPctTotal=Math.abs((slPrice-entryPrice)/entryPrice*100);
+  document.getElementById('tmSub').textContent=`TP: +${tpPctTotal.toFixed(2)}% [${activeTrade.tpMode}]  SL: -${slPctTotal.toFixed(2)}% [${activeTrade.slMode}]`;
+  document.getElementById('tpBar').style.width=Math.min(100,Math.max(0,rawPct/tpPctTotal*100))+'%';
+  document.getElementById('slBar').style.width=Math.min(100,Math.max(0,-rawPct/slPctTotal*100))+'%';
+}
+
+// ── HMAC ───────────────────────────────────────
+async function signHmac(secret,message){
+  const enc=new TextEncoder();
+  const key=await crypto.subtle.importKey('raw',enc.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const sig=await crypto.subtle.sign('HMAC',key,enc.encode(message));
+  return Array.from(new Uint8Array(sig)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+// ── LOG ────────────────────────────────────────
+function log(msg,type=''){
+  const box=document.getElementById('logBox');
+  const el=document.createElement('div');
+  el.className=`log-entry ${type}`;
+  el.textContent=`[${new Date().toLocaleTimeString()}] ${msg}`;
+  box.appendChild(el);
+  box.scrollTop=box.scrollHeight;
+}
+
+// ── INIT ───────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function(){
+  if(typeof LightweightCharts === 'undefined'){
+    document.getElementById('logBox').innerHTML =
+      '<div class="log-entry err">[ERROR] Chart library failed to load. Check your internet connection and reload.</div>';
+    return;
+  }
+  try{
+    initChart();
+    log('Welcome. Draw lines → ARM bot, or trade manually.','info');
+    log('Futures mode: symbol format is BTC_USDT','info');
+    loadCandles();
+  }catch(e){
+    document.getElementById('logBox').innerHTML =
+      `<div class="log-entry err">[INIT ERROR] ${e.message}</div>`;
+  }
+});
