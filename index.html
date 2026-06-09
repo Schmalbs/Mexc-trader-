@@ -618,6 +618,7 @@ let touchStartX    = 0, touchStartY = 0;
 let crosshairPt    = null;   // current crosshair chart coords
 let crosshairPx    = null;   // current crosshair pixel coords
 let crosshairVisible = false;
+let awaitingPoint2   = false; // set after point1 locked, cleared after point2
 const CROSSHAIR_OFFSET = 60; // px above finger
 let selectedLineColor = '#ffffff';
 
@@ -955,7 +956,7 @@ function initChart(){
   // POINT 2: Touch anywhere → crosshair follows finger immediately → lift to confirm
   // This avoids any second long-press locking issue entirely
 
-  let awaitingPoint2 = false; // after point1 locked, next touch = point2 drag
+  // awaitingPoint2 is global (declared outside initChart)
 
   chartEl.addEventListener('touchstart', e=>{
     if(!drawTool) return;
@@ -966,12 +967,10 @@ function initChart(){
     touchStartX = touch.clientX;
     touchStartY = touch.clientY;
 
-    log(`touchstart: awaitingP2=${awaitingPoint2} drawStep=${drawStep}`,'info');
-
     if(awaitingPoint2){
       const rect = chartEl.getBoundingClientRect();
+      // For point 2 use offset above finger same as point 1
       showCrosshair(touch.clientX, touch.clientY, rect);
-      log(`P2 crosshair shown at ${touch.clientX},${touch.clientY}`,'info');
       return;
     }
 
@@ -994,7 +993,7 @@ function initChart(){
     if(awaitingPoint2){
       const rect = chartEl.getBoundingClientRect();
       showCrosshair(touch.clientX, touch.clientY, rect);
-      return;
+      return; // keep tracking
     }
 
     const dx = Math.abs(touch.clientX - touchStartX);
@@ -1019,15 +1018,9 @@ function initChart(){
     if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer=null; }
     setChartScroll(true);
 
-    log(`touchend: awaitingP2=${awaitingPoint2} crosshairVisible=${crosshairVisible} crosshairPt=${JSON.stringify(crosshairPt)}`,'info');
-
-    if(!crosshairVisible || !crosshairPt){
-      log(`touchend: no crosshair/pt — ignoring`,'warn');
-      return;
-    }
+    if(!crosshairVisible || !crosshairPt) return;
 
     if(awaitingPoint2){
-      log(`Confirming point 2!`,'ok');
       awaitingPoint2 = false;
       navigator.vibrate&&navigator.vibrate([30,20,60]);
       removePreview();
@@ -1041,7 +1034,6 @@ function initChart(){
       return;
     }
 
-    log(`Calling confirmPoint (P1 or horiz)`,'info');
     confirmPoint();
 
   }, {passive:false});
@@ -1059,19 +1051,21 @@ function initChart(){
     }
 
     if(drawTool==='trend' && drawStep===0){
-      // Lock point 1 — switch to point2 drag mode immediately
+      // Lock point 1
       navigator.vibrate&&navigator.vibrate(40);
       drawP1   = crosshairPt;
       drawP1px = crosshairPx;
       drawStep = 1;
-      awaitingPoint2 = true;
       const dot = document.getElementById('drawDot1');
       dot.style.display = 'block';
       dot.style.left = crosshairPx.x+'px';
       dot.style.top  = crosshairPx.y+'px';
       hideCrosshair();
       crosshairPt = null;
-      showInstruction('Point 1 ✓  Touch & drag for point 2, lift to draw');
+      // Delay setting awaitingPoint2 so it doesn't get seen by touchstart
+      // from the same touch event cycle
+      setTimeout(()=>{ awaitingPoint2 = true; }, 50);
+      showInstruction('Point 1 ✓  Touch anywhere for point 2');
     }
   }
 }
