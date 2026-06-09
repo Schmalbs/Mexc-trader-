@@ -947,25 +947,8 @@ function initChart(){
     }
   }
 
-  function hideCrosshair(){
-    document.getElementById('drawCrosshair').style.display='none';
-    crosshairVisible = false;
-  }
-
-  function showInstruction(msg){
-    const el = document.getElementById('drawInstruction');
-    el.textContent = msg;
-    el.style.display = msg ? 'block' : 'none';
-  }
-
   // LONG PRESS — shows crosshair, keeps it when finger lifts
-  // Helper: disable/enable chart touch scrolling
-  function setChartScroll(enabled){
-    chart.applyOptions({
-      handleScroll:{mouseWheel:enabled,pressedMouseMove:enabled,horzTouchDrag:enabled,vertTouchDrag:enabled},
-      handleScale:{mouseWheel:enabled,pinch:enabled,axisPressedMouseMove:enabled},
-    });
-  }
+  // setChartScroll, hideCrosshair, showInstruction are global (defined below initChart)
 
   chartEl.addEventListener('touchstart', e=>{
     if(!drawTool) return;
@@ -1703,6 +1686,28 @@ function log(msg,type=''){
   el.textContent=`[${new Date().toLocaleTimeString()}] ${msg}`;
   box.appendChild(el);
   box.scrollTop=box.scrollHeight;
+}
+
+// ── GLOBAL DRAWING HELPERS ────────────────────
+function hideCrosshair(){
+  const el = document.getElementById('drawCrosshair');
+  if(el) el.style.display='none';
+  crosshairVisible = false;
+}
+
+function showInstruction(msg){
+  const el = document.getElementById('drawInstruction');
+  if(!el) return;
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+function setChartScroll(enabled){
+  if(!chart) return;
+  chart.applyOptions({
+    handleScroll:{mouseWheel:enabled,pressedMouseMove:enabled,horzTouchDrag:enabled,vertTouchDrag:enabled},
+    handleScale:{mouseWheel:enabled,pinch:enabled,axisPressedMouseMove:enabled},
+  });
 }
 
 // ── FULLSCREEN ────────────────────────────────
