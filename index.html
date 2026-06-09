@@ -957,7 +957,8 @@ function initChart(){
   // Short tap (< 300ms, no movement) → confirm point
   // Scroll guard: chart scroll disabled only while finger is actively down
 
-  let isLongPressActive = false; // true while finger is held after long press fires
+  let isLongPressActive = false;      // true while finger is held after long press fires
+  let crosshairReadyToConfirm = false; // true only after a long press lifts cleanly
 
   chartEl.addEventListener('touchstart', e=>{
     if(!drawTool) return;
@@ -1014,13 +1015,15 @@ function initChart(){
     setChartScroll(true);
 
     if(wasLongPress){
-      // Lifted after long press — crosshair stays frozen, do nothing else
+      // Lifted after long press — crosshair stays frozen and READY to confirm
+      crosshairReadyToConfirm = true;
       e.preventDefault();
       return;
     }
 
-    // Was a quick tap — if crosshair is frozen, confirm the point
-    if(crosshairVisible && crosshairPt){
+    // Was a quick tap — only confirm if crosshair was freshly placed by a long press
+    if(crosshairVisible && crosshairPt && crosshairReadyToConfirm){
+      crosshairReadyToConfirm = false;
       e.preventDefault();
       confirmPoint();
     }
@@ -1051,6 +1054,7 @@ function initChart(){
         dot.style.left = crosshairPx.x+'px';
         dot.style.top  = crosshairPx.y+'px';
         hideCrosshair();
+        crosshairPt = null; // prevent stale confirm on next touchend
         showInstruction('Point 1 ✓  Long press for point 2');
 
       } else if(drawStep===1){
@@ -1063,9 +1067,11 @@ function initChart(){
         showInstruction('Line drawn ✓');
         setTimeout(()=>showInstruction(''), 1500);
         drawStep=0; drawP1=null; drawP1px=null;
+        crosshairReadyToConfirm = false;
         setDrawTool(null);
       }
     }
+    crosshairReadyToConfirm = false;
   }
 }
 
