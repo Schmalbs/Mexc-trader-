@@ -933,7 +933,7 @@ async function proxyFetch(url, options={}){
   return fetch(url, options);
 }
 // MEXC Futures kline intervals
-const TF_MAP = {'1m':'Min1','5m':'Min5','15m':'Min15','1h':'Hour1','4h':'Hour4','1d':'Day1'};
+const TF_MAP = {'1m':'Min1','5m':'Min5','15m':'Min15','1h':'Min60','4h':'Hour4','1d':'Day1'};
 
 // ── ACCOUNT P&L ────────────────────────────────
 function getStartBalance(){ return parseFloat(document.getElementById('startBalance').value)||1000; }
@@ -1263,6 +1263,8 @@ async function loadCandles(){
   }catch(e){ log(`Load failed: ${e.message}`,'err'); }
 }
 
+let candleRefreshCounter = 0;
+
 function startPricePoll(){
   if(watchInterval) clearInterval(watchInterval);
   watchInterval = setInterval(async()=>{
@@ -1276,10 +1278,52 @@ function startPricePoll(){
       const p = parseFloat(ticker.lastPrice);
       updatePrice(p);
       updateAccountBadge(p);
+
+      // ── LIVE CHART: update current candle with the live price ──
+      if(candles.length && p){
+        const last = candles[candles.length-1];
+        last.close = p;
+        if(p > last.high) last.high = p;
+        if(p < last.low)  last.low  = p;
+        try{ candleSeries.update(last); }catch(e){}
+      }
+
+      // ── Every ~5th tick (15s): fetch latest candles to catch new candle opens ──
+      candleRefreshCounter++;
+      if(candleRefreshCounter % 5 === 0) refreshLatestCandles();
+
       if(botArmed) checkTriggers();
       if(activeTrade){ checkPriceExits(p); if(pnlOverlayOn) updatePnlOverlay(p); renderTradesPanel(); }
     }catch{}
   },3000);
+}
+
+async function refreshLatestCandles(){
+  try{
+    const interval = TF_MAP[currentTf]||'Min15';
+    const res = await proxyFetch(api(`/api/v1/contract/kline/${currentSymbol}?interval=${interval}&limit=3`));
+    const d = await res.json();
+    if(!d.success || !d.data || !d.data.time) return;
+    const {time,open,high,low,close} = d.data;
+    for(let i=0;i<time.length;i++){
+      const k = {
+        time:  parseInt(time[i]),
+        open:  parseFloat(open[i]),
+        high:  parseFloat(high[i]),
+        low:   parseFloat(low[i]),
+        close: parseFloat(close[i]),
+      };
+      const lastLocal = candles[candles.length-1];
+      if(!lastLocal) continue;
+      if(k.time > lastLocal.time){
+        candles.push(k);
+        try{ candleSeries.update(k); }catch(e){}
+      } else if(k.time === lastLocal.time){
+        candles[candles.length-1] = k;
+        try{ candleSeries.update(k); }catch(e){}
+      }
+    }
+  }catch(e){}
 }
 
 function updatePrice(p){
