@@ -1564,6 +1564,7 @@ async function closeFraction(fraction){
   if(!authToken){ log('Log in first.','err'); return; }
   if(!activeTrade){ log('No active trade.','warn'); return; }
   const label = fraction>=0.999 ? 'full position' : Math.round(fraction*100)+'%';
+  if(!confirm(`Close ${label}? This executes a market order immediately.`)) return;
   log(`Closing ${label}...`,'warn');
   try{
     const r = await fetch(PROXY+'/trade/close',{
@@ -1592,6 +1593,7 @@ async function closeMexcPosition(symbol, positionType, totalVol, fraction, lever
   if(!authToken){ log('Log in first.','err'); return; }
   const vol = fraction>=0.999 ? totalVol : Math.max(1, Math.floor(totalVol*fraction));
   const label = fraction>=0.999 ? 'full position' : Math.round(fraction*100)+'%';
+  if(!confirm(`Close ${label} of ${symbol} (${vol} contracts)? Market order executes immediately.`)) return;
   log(`Closing ${label} of ${symbol} (${vol} contracts)...`,'warn');
   try{
     const r = await fetch(PROXY+'/position/close',{
@@ -1611,6 +1613,7 @@ async function closeMexcPosition(symbol, positionType, totalVol, fraction, lever
 
 async function manualCloseTrade(){
   if(!activeTrade){ log('No active trade to close.','warn'); return; }
+  if(!confirm('Close this trade at market price?')) return;
   if(authToken && activeTrade.serverManaged){
     log('Closing trade via server...','warn');
     try{
@@ -1674,6 +1677,7 @@ async function armBot(){
   log(`Bot armed on ${trendLines.length} line(s)`,'ok');
 }
 async function disarmBot(){
+  if(!confirm('Disarm the bot? It will stop watching for entries.')) return;
   if(authToken){
     try{ await fetch(PROXY+'/bot/disarm',{method:'POST',headers:authHeaders()}); }catch(e){}
   }
