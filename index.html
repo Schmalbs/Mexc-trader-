@@ -1241,17 +1241,19 @@ function initChart(){
   });
   // Desktop: click to place points when tool active
   // ── DESKTOP: mouse drag for selected lines ──
-  chartEl.addEventListener('mousedown', e=>{
+  // (own element lookup — chartEl const is declared further down)
+  const chartElMouse = document.getElementById('chart');
+  chartElMouse.addEventListener('mousedown', e=>{
     if(isTouchDevice || drawTool) return;
-    const rect = chartEl.getBoundingClientRect();
+    const rect = chartElMouse.getBoundingClientRect();
     if(lineDragStart(e.clientX-rect.left, e.clientY-rect.top)){
       e.preventDefault();
       setChartScroll(false);
     }
   });
-  chartEl.addEventListener('mousemove', e=>{
+  chartElMouse.addEventListener('mousemove', e=>{
     if(isTouchDevice || !lineDrag) return;
-    const rect = chartEl.getBoundingClientRect();
+    const rect = chartElMouse.getBoundingClientRect();
     lineDragMove(e.clientX-rect.left, e.clientY-rect.top);
   });
   window.addEventListener('mouseup', ()=>{
@@ -1418,9 +1420,10 @@ function initChart(){
 const CANDLE_LIMIT = 2000;
 let loadingMoreCandles = false;
 
-async function loadCandles(){
+async function loadCandles(attempt){
+  attempt = attempt || 1;
   currentSymbol = document.getElementById('symbolInput').value.trim().toUpperCase();
-  log(`Loading ${currentSymbol} ${currentTf}...`,'info');
+  if(attempt===1) log(`Loading ${currentSymbol} ${currentTf}...`,'info');
   try{
     const interval = TF_MAP[currentTf]||'Min15';
     const res = await proxyFetch(api(`/api/v1/contract/kline/${currentSymbol}?interval=${interval}&limit=${CANDLE_LIMIT}`));
@@ -1444,7 +1447,15 @@ async function loadCandles(){
     openDay = candles[0].open;
     log(`Loaded ${candles.length} candles for ${currentSymbol}`,'ok');
     startPricePoll();
-  }catch(e){ log(`Load failed: ${e.message}`,'err'); }
+  }catch(e){
+    if(attempt < 4){
+      const wait = attempt * 2000; // 2s, 4s, 6s backoff
+      log(`Load failed (${e.message}) — retrying in ${wait/1000}s...`,'warn');
+      setTimeout(()=>loadCandles(attempt+1), wait);
+    } else {
+      log(`Load failed after ${attempt} attempts: ${e.message}. Tap Load or ↻ to retry.`,'err');
+    }
+  }
 }
 
 // Load more historical candles when user scrolls to the left edge
