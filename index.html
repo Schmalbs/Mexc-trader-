@@ -224,13 +224,23 @@
 </head>
 <body>
 
+<!-- ── LOGIN GATE ── -->
+<div id="loginOverlay" style="position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;">
+  <div style="font-family:var(--font-mono);font-weight:600;font-size:22px;color:var(--accent);letter-spacing:1px;">MEXC<span style="color:var(--muted);font-weight:400;">/TREND</span></div>
+  <input type="password" id="appPassword" placeholder="Password" autocomplete="current-password"
+    style="width:230px;padding:11px;font-size:14px;text-align:center;background:var(--panel);border:1px solid var(--border);color:var(--text);border-radius:8px;outline:none;"
+    onkeydown="if(event.key==='Enter')appLogin()"/>
+  <button class="btn btn-accent" style="width:230px;padding:11px;font-size:13px;border-radius:8px;" onclick="appLogin()">Enter</button>
+  <div id="loginErr" style="color:var(--danger);font-family:var(--font-mono);font-size:11px;min-height:14px;"></div>
+</div>
+
 <header>
   <div class="logo">MEXC<span>/TREND</span></div>
   <div class="header-controls">
     <input type="text" id="symbolInput" value="BTC_USDT" style="width:80px;font-size:10px;padding:2px 6px" placeholder="Symbol"/>
     <button class="btn btn-accent2" onclick="loadCandles()" style="padding:2px 8px;font-size:10px;">Load</button>
-    <input type="password" id="apiKey" placeholder="API Key" style="width:90px;font-size:10px;padding:2px 6px"/>
-    <input type="password" id="apiSecret" placeholder="API Secret" style="width:90px;font-size:10px;padding:2px 6px"/>
+    <input type="password" id="apiKey" placeholder="API Key" style="display:none"/>
+    <input type="password" id="apiSecret" placeholder="API Secret" style="display:none"/>
     <span id="connPill" class="pill pill-grey">● NOT CONNECTED</span>
     <!-- ACCOUNT % BADGE -->
     <div class="acct-badge" style="cursor:pointer" onclick="toggleHeaderPnlMode()" title="Click to toggle % / $">
@@ -814,7 +824,92 @@ let realizedPnlDollars = 0;  // sum of closed trade profits/losses in $
 let tradeCount = 0;
 
 const PROXY = 'https://mexc-proxy-production.up.railway.app';
-const PROXY_SECRET = 'S2103270boxer1984@'; // must match PROXY_SECRET in Railway
+const PROXY_SECRET = ''; // no longer used — password auth replaces it
+
+// ── AUTH ──────────────────────────────────────
+let authToken = '';
+try{ authToken = localStorage.getItem('mexc_token')||''; }catch(e){}
+
+async function appLogin(){
+  const pw = document.getElementById('appPassword').value;
+  const err = document.getElementById('loginErr');
+  err.textContent = '';
+  try{
+    const res = await fetch(PROXY+'/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
+    const d = await res.json();
+    if(d.token){
+      authToken = d.token;
+      try{ localStorage.setItem('mexc_token', authToken); }catch(e){}
+      document.getElementById('loginOverlay').style.display='none';
+      log('Logged in ✓ — server connection active','ok');
+      fetchAccountBalance();
+      pollBotStatus();
+    } else {
+      err.textContent = 'Wrong password';
+    }
+  }catch(e){ err.textContent = 'Server unreachable — check Railway'; }
+}
+
+async function tryExistingToken(){
+  if(!authToken) return;
+  try{
+    const r = await fetch(PROXY+'/bot/status',{headers:{'X-Auth':authToken}});
+    if(r.ok){
+      document.getElementById('loginOverlay').style.display='none';
+      log('Session restored ✓','ok');
+      fetchAccountBalance();
+      pollBotStatus();
+    }
+  }catch(e){}
+}
+
+function authHeaders(extra={}){ return Object.assign({'X-Auth':authToken}, extra); }
+
+// ── SERVER BOT STATUS POLLING ──
+let lastServerLogCount = 0;
+async function pollBotStatus(){
+  if(!authToken) return;
+  try{
+    const r = await fetch(PROXY+'/bot/status',{headers:authHeaders()});
+    if(!r.ok) return;
+    const d = await r.json();
+    // Reflect armed state
+    const pill = document.getElementById('connPill');
+    if(d.armed){
+      pill.className='pill pill-green'; pill.textContent='● BOT ARMED (server)';
+      document.getElementById('armBtn').style.display='none';
+      document.getElementById('disarmBtn').style.display='block';
+      botArmed = true;
+    } else {
+      if(pill.textContent.includes('ARMED')){ pill.className='pill pill-green'; pill.textContent='● CONNECTED'; }
+      document.getElementById('armBtn').style.display='block';
+      document.getElementById('disarmBtn').style.display='none';
+      botArmed = false;
+    }
+    // Reflect server-managed trade
+    if(d.activeTrade){
+      activeTrade = {
+        side: d.activeTrade.side, entryPrice: d.activeTrade.entryPrice,
+        tpPrice: d.activeTrade.tpPrice, slPrice: d.activeTrade.slPrice,
+        qty: d.activeTrade.qty, leverage: d.activeTrade.leverage,
+        tpMode: d.activeTrade.tp.mode, slMode: d.activeTrade.sl.mode,
+        openTime: new Date(d.activeTrade.openedAt).toLocaleTimeString(),
+        serverManaged: true,
+      };
+      renderTradesPanel();
+    } else if(activeTrade && activeTrade.serverManaged){
+      activeTrade = null;
+      renderTradesPanel();
+    }
+    // Show new server logs
+    if(d.logs && d.logs.length){
+      const newLogs = d.logs.slice(lastServerLogCount);
+      newLogs.forEach(l => log(`[server] ${l.msg}`, l.type));
+      lastServerLogCount = d.logs.length;
+    }
+  }catch(e){}
+}
+setInterval(pollBotStatus, 10000);
 const FUTURES_BASE  = 'https://contract.mexc.com';  // futures REST
 const SPOT_BASE     = 'https://api.mexc.com';        // kept only for reference
 // cors-anywhere proxy: proxy_url/https://target.host/path
@@ -881,36 +976,18 @@ function resetAccountPnl(){
 }
 
 async function fetchAccountBalance(){
-  const apiKey    = document.getElementById('apiKey').value.trim();
-  const apiSecret = document.getElementById('apiSecret').value.trim();
   const statusEl  = document.getElementById('balanceStatus');
-  if(!apiKey || !apiSecret){
-    log('Enter API Key & Secret before syncing balance.','err');
-    return;
-  }
+  if(!authToken){ log('Log in first.','err'); return; }
   statusEl.style.display = 'block';
   statusEl.style.color = 'var(--muted)';
   statusEl.textContent = '↻ Fetching balance...';
   try{
-    const timestamp = Date.now();
-    // MEXC Futures signed request: sign the raw timestamp string
-    const signature = await signHmac(apiSecret, apiKey + timestamp);
-    const res = await proxyFetch(api(`/api/v1/private/account/assets`),{
-      headers:{
-        'ApiKey': apiKey,
-        'Request-Time': String(timestamp),
-        'Signature': signature,
-        'Content-Type': 'application/json'
-      }
-    });
+    const res = await fetch(PROXY+'/account/balance',{headers:authHeaders()});
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if(!data.success) throw new Error(data.message||'Account fetch failed');
-    const assets = data.data || [];
-    const usdt   = assets.find(a => a.currency === 'USDT');
-    const free   = usdt ? parseFloat(usdt.availableBalance) : 0;
-    const frozen = usdt ? parseFloat(usdt.frozenBalance)    : 0;
-    const total  = free + frozen;
+    const d = await res.json();
+    const free   = d.free   || 0;
+    const frozen = d.frozen || 0;
+    const total  = d.total  || 0;
     document.getElementById('startBalance').value = total.toFixed(2);
     realizedPnlDollars = 0;
     tradeCount = 0;
@@ -938,23 +1015,13 @@ async function fetchAccountBalance(){
 let mexcPositions = []; // positions fetched from MEXC futures account
 
 async function fetchOpenPositions(){
-  const apiKey    = document.getElementById('apiKey').value.trim();
-  const apiSecret = document.getElementById('apiSecret').value.trim();
-  if(!apiKey || !apiSecret) return;
+  if(!authToken) return;
   try{
-    const timestamp = Date.now();
-    const signature = await signHmac(apiSecret, apiKey + timestamp);
-    const res = await proxyFetch(api('/api/v1/private/position/open_positions'),{
-      headers:{
-        'ApiKey': apiKey,
-        'Request-Time': String(timestamp),
-        'Signature': signature,
-        'Content-Type': 'application/json'
-      }
-    });
+    const res = await fetch(PROXY+'/account/positions',{headers:authHeaders()});
     if(!res.ok) return;
     const data = await res.json();
-    if(!data.success) return;
+    data.success = true;
+    data.data = data.positions;
     // Any successful authenticated call = we're connected
     const pill = document.getElementById('connPill');
     if(pill && !botArmed){
@@ -973,10 +1040,7 @@ async function fetchOpenPositions(){
 }
 
 // Refresh positions every 15 seconds when connected
-setInterval(()=>{
-  const apiKey = document.getElementById('apiKey');
-  if(apiKey && apiKey.value.trim()) fetchOpenPositions();
-}, 15000);
+setInterval(()=>{ if(authToken) fetchOpenPositions(); }, 15000);
 
 // ── CHART INIT ─────────────────────────────────
 function initChart(){
@@ -1468,19 +1532,61 @@ function manualOpenTrade(){
   executeEntry({side, entryPrice, tpPrice, slPrice, qty, leverage, marginType, tpMode, slMode, tpTf, slTf, orderType});
 }
 
-function manualCloseTrade(){
+async function manualCloseTrade(){
   if(!activeTrade){ log('No active trade to close.','warn'); return; }
+  if(authToken && activeTrade.serverManaged){
+    log('Closing trade via server...','warn');
+    try{
+      const r = await fetch(PROXY+'/trade/close',{method:'POST',headers:authHeaders()});
+      const d = await r.json();
+      if(d.closed){ log('✅ Trade closed by server','ok'); activeTrade=null; renderTradesPanel(); document.getElementById('activeTradeCard').style.display='none'; }
+      else log(`Close error: ${JSON.stringify(d)}`,'err');
+    }catch(e){ log(`Close failed: ${e.message}`,'err'); }
+    return;
+  }
   const price = lastPrice || activeTrade.entryPrice;
   log('Manual close triggered.','warn');
   exitTrade('MANUAL', price, 'manual');
 }
 
 // ── BOT ARM / DISARM ───────────────────────────
-function armBot(){
-  if(!trendLines.length){ log('Draw at least one trend line first.','err'); return; }
-  const apiKey=document.getElementById('apiKey').value.trim();
-  const apiSecret=document.getElementById('apiSecret').value.trim();
-  if(!apiKey||!apiSecret){ log('Enter API Key & Secret.','err'); return; }
+async function armBot(){
+  if(!authToken){ log('Log in first.','err'); return; }
+  if(triggerSource==='line' && !trendLines.length){ log('Draw at least one trend line first.','err'); return; }
+
+  // Build server config
+  const cfg = {
+    symbol: currentSymbol,
+    trigTf: TF_MAP[document.getElementById('triggerTf').value]||'Min15',
+    dir: document.getElementById('triggerDir').value,
+    triggerSource: triggerSource,
+    manualPrice: document.getElementById('triggerManualPrice').value,
+    selectedLineId: document.getElementById('triggerLineId').value,
+    lines: trendLines.map(t=>({id:t.id, p1:t.p1, p2:t.p2, isHoriz:!!t.isHoriz, horizPrice:t.horizPrice})),
+    qty: resolveQty('bot', lastPrice||1),
+    leverage: parseInt(document.getElementById('botLeverage').value)||1,
+    marginType: document.getElementById('botMarginType').value,
+    orderType: document.getElementById('orderType').value,
+    tp: {
+      mode: document.getElementById('tpMode').value,
+      type: exitTypeState.botTp,
+      value: exitTypeState.botTp==='price' ? parseFloat(document.getElementById('botTpPrice').value) : parseFloat(document.getElementById('tpPct').value),
+      tf: TF_MAP[document.getElementById('tpTf').value]||'Min15',
+    },
+    sl: {
+      mode: document.getElementById('slMode').value,
+      type: exitTypeState.botSl,
+      value: exitTypeState.botSl==='price' ? parseFloat(document.getElementById('botSlPrice').value) : parseFloat(document.getElementById('slPct').value),
+      tf: TF_MAP[document.getElementById('slTf').value]||'Min15',
+    },
+  };
+
+  try{
+    const r = await fetch(PROXY+'/bot/arm',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(cfg)});
+    if(!r.ok) throw new Error('arm failed');
+    log('Bot armed on SERVER — runs 24/7 even with this page closed ✓','ok');
+  }catch(e){ log(`Arm failed: ${e.message}`,'err'); return; }
+
   botArmed=true;
   trendLines.forEach(tl=>tl.armed=true);
   renderTlList();
@@ -1490,7 +1596,10 @@ function armBot(){
   document.getElementById('connPill').textContent='● BOT ARMED';
   log(`Bot armed on ${trendLines.length} line(s)`,'ok');
 }
-function disarmBot(){
+async function disarmBot(){
+  if(authToken){
+    try{ await fetch(PROXY+'/bot/disarm',{method:'POST',headers:authHeaders()}); }catch(e){}
+  }
   botArmed=false;
   trendLines.forEach(tl=>tl.armed=false);
   renderTlList();
@@ -1574,6 +1683,31 @@ async function checkTriggers(){
 
 // ── EXECUTE ENTRY ──────────────────────────────
 async function executeEntry({side,entryPrice,tpPrice,slPrice,qty,leverage=1,marginType='isolated',tpMode,slMode,tpTf,slTf,orderType}){
+  if(!authToken){ log('Log in first.','err'); return; }
+  // Send to server — server manages the trade 24/7
+  const leverageLabel0 = leverage>1 ? ` | ${leverage}× ${marginType}` : '';
+  log(`${side} ${orderType}${leverageLabel0} | Qty:${qty} | Entry:$${entryPrice.toFixed(4)}`,'info');
+  try{
+    const r = await fetch(PROXY+'/trade/open',{
+      method:'POST',
+      headers:authHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({
+        symbol: currentSymbol, side, entryPrice, tpPrice, slPrice, qty, leverage, marginType,
+        tpMode, slMode,
+        tpTf: TF_MAP[tpTf]||'Min15', slTf: TF_MAP[slTf]||'Min15',
+        orderType, limitPrice: orderType==='LIMIT'?entryPrice:0,
+      })
+    });
+    const d = await r.json();
+    if(d.success){
+      log(`✅ Order placed via server! ID:${d.orderId}`,'ok');
+      registerTrade({side,entryPrice,tpPrice,slPrice,qty,leverage,tpMode,slMode,tpTf,slTf,serverManaged:true});
+    } else {
+      log(`Order error: ${JSON.stringify(d)}`,'err');
+    }
+  }catch(e){ log(`Order failed: ${e.message}`,'err'); }
+  return;
+  // legacy client-side path below (unreachable)
   const apiKey=document.getElementById('apiKey').value.trim();
   const apiSecret=document.getElementById('apiSecret').value.trim();
   const leverageLabel = leverage>1 ? ` | ${leverage}× ${marginType}` : '';
@@ -2061,8 +2195,9 @@ function startApp(){
   try{
     initChart();
     log('Welcome. Draw lines → ARM bot, or trade manually.','info');
-    log('Futures mode active — symbol format: BTC_USDT','info');
+    log('Bot runs on the SERVER — stays armed when you close this page.','info');
     loadCandles();
+    tryExistingToken();
   }catch(e){
     document.getElementById('logBox').innerHTML =
       `<div class="log-entry err">[INIT ERROR] ${e.message}</div>`;
