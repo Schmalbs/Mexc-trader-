@@ -159,6 +159,8 @@
   .tl-item-info{flex:1;}
   .tl-name{color:var(--text);font-weight:500;}
   .tl-meta{color:var(--muted);font-size:10px;margin-top:2px;}
+  .tl-nudge{background:var(--surface);border:1px solid var(--border);color:var(--accent2);border-radius:3px;font-size:9px;padding:3px 6px;cursor:pointer;flex-shrink:0;-webkit-tap-highlight-color:transparent;}
+  .tl-nudge:active{background:var(--accent2);color:#fff;}
   .tl-del{background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px;padding:0 2px;}
 
   /* ACTIVE TRADE CARD */
@@ -757,31 +759,38 @@ function setQtyMode(section, mode){
   }
 }
 
+const CONTRACT_SIZE = 0.0001; // MEXC BTC_USDT perpetual: 1 contract = 0.0001 BTC
+
+function baseToContracts(baseQty){
+  // MEXC futures vol must be an INTEGER number of contracts
+  return Math.max(1, Math.round(baseQty / CONTRACT_SIZE));
+}
+
 function resolveQty(section, entryPrice){
   const mode = qtyModeState[section];
   if(section==='manual'){
-    if(mode==='base') return parseFloat(document.getElementById('manualQty').value)||0.001;
+    if(mode==='base') return baseToContracts(parseFloat(document.getElementById('manualQty').value)||0.001);
     if(mode==='usdt'){
       const usdt = parseFloat(document.getElementById('manualQtyUsdt').value)||100;
-      return entryPrice>0 ? usdt/entryPrice : 0.001;
+      return baseToContracts(entryPrice>0 ? usdt/entryPrice : 0.001);
     }
     if(mode==='pct'){
       const pct  = parseFloat(document.getElementById('manualQtyPct').value)||10;
       const bal  = getStartBalance();
       const usdt = bal*(pct/100);
-      return entryPrice>0 ? usdt/entryPrice : 0.001;
+      return baseToContracts(entryPrice>0 ? usdt/entryPrice : 0.001);
     }
   } else {
-    if(mode==='base') return parseFloat(document.getElementById('qty').value)||0.001;
+    if(mode==='base') return baseToContracts(parseFloat(document.getElementById('qty').value)||0.001);
     if(mode==='usdt'){
       const usdt = parseFloat(document.getElementById('botQtyUsdt').value)||100;
-      return entryPrice>0 ? usdt/entryPrice : 0.001;
+      return baseToContracts(entryPrice>0 ? usdt/entryPrice : 0.001);
     }
     if(mode==='pct'){
       const pct  = parseFloat(document.getElementById('botQtyPct').value)||10;
       const bal  = getStartBalance();
       const usdt = bal*(pct/100);
-      return entryPrice>0 ? usdt/entryPrice : 0.001;
+      return baseToContracts(entryPrice>0 ? usdt/entryPrice : 0.001);
     }
   }
   return 0.001;
@@ -1231,6 +1240,29 @@ function initChart(){
     if(range.from < 10) loadMoreCandles();
   });
   // Desktop: click to place points when tool active
+  // ── DESKTOP: mouse drag for selected lines ──
+  chartEl.addEventListener('mousedown', e=>{
+    if(isTouchDevice || drawTool) return;
+    const rect = chartEl.getBoundingClientRect();
+    if(lineDragStart(e.clientX-rect.left, e.clientY-rect.top)){
+      e.preventDefault();
+      setChartScroll(false);
+    }
+  });
+  chartEl.addEventListener('mousemove', e=>{
+    if(isTouchDevice || !lineDrag) return;
+    const rect = chartEl.getBoundingClientRect();
+    lineDragMove(e.clientX-rect.left, e.clientY-rect.top);
+  });
+  window.addEventListener('mouseup', ()=>{
+    if(isTouchDevice || !lineDrag) return;
+    lineDragEnd();
+    setChartScroll(true);
+  });
+
+  // Keep selection handles glued to the line when the chart pans/zooms
+  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>{ if(selectedLine) updateLineHandles(); });
+
   // ── DRAWING: offset crosshair above finger + Lock button ─
   // Touch moves the chart crosshair naturally (no preventDefault)
   // We overlay our own crosshair 60px ABOVE the finger position
@@ -1242,13 +1274,32 @@ function initChart(){
   // passive:false so we can preventDefault and stop chart panning while drawing
   chartEl.addEventListener('touchstart', e=>{
     isTouchDevice = true; // any touch = mobile mode, disables desktop click handlers
-    if(!drawTool) return;
-    // Disable chart scroll the moment a draw tool is active and finger touches
+    const touch0 = e.touches[0];
+    const rect0  = chartEl.getBoundingClientRect();
+    const tx = touch0.clientX - rect0.left;
+    const ty = touch0.clientY - rect0.top;
+
+    if(!drawTool){
+      // No draw tool — check if finger landed on a line → start drag
+      if(e.touches.length===1 && lineDragStart(tx, ty)){
+        e.preventDefault();
+        setChartScroll(false);
+      }
+      return; // otherwise let the chart pan normally
+    }
+    // Draw tool active — block chart scroll for crosshair placement
     e.preventDefault();
     setChartScroll(false);
   }, {passive:false});
 
   chartEl.addEventListener('touchmove', e=>{
+    if(lineDrag){
+      e.preventDefault();
+      const touch = e.touches[0];
+      const rect  = chartEl.getBoundingClientRect();
+      lineDragMove(touch.clientX - rect.left, touch.clientY - rect.top);
+      return;
+    }
     if(!drawTool) return;
     e.preventDefault();
     const touch = e.touches[0];
@@ -1259,25 +1310,11 @@ function initChart(){
     const cy = touch.clientY - rect.top - CROSSHAIR_OFFSET;
     if(cy < 0) return;
 
-    // Adjust cx for price scale width on the right
-    // so coordinateToTime maps correctly to the time axis
-    let priceScaleW = 60; // fallback estimate
-    try { priceScaleW = chart.priceScale('right').width(); } catch(e){}
-    const timeCx = Math.min(cx, rect.width - priceScaleW - 1);
-
     const price = candleSeries.coordinateToPrice(cy);
-    const time  = chart.timeScale().coordinateToTime(timeCx);
     if(price == null) return;
 
-    // Use nearest candle time if coordinateToTime returns null
-    let resolvedTime = time;
-    if(!resolvedTime && candles.length){
-      // Find nearest candle by x position ratio
-      const ratio = timeCx / (rect.width - priceScaleW);
-      const idx = Math.round(ratio * (candles.length-1));
-      resolvedTime = candles[Math.max(0,Math.min(candles.length-1,idx))].time;
-    }
-    crosshairPt = {time: resolvedTime || Math.floor(Date.now()/1000), price};
+    // Fractional time — anchors anywhere, never snaps to a candle
+    crosshairPt = {time: xToTime(cx), price};
     crosshairPx = {x:cx, y:cy};
     crosshairVisible = true;
 
@@ -1313,6 +1350,7 @@ function initChart(){
 
   // Re-enable scroll when finger lifts
   chartEl.addEventListener('touchend', e=>{
+    if(lineDrag){ lineDragEnd(); setChartScroll(true); return; }
     if(drawTool) e.preventDefault();
     // Re-enable chart scroll so user can still pan between touches
     setChartScroll(true);
@@ -1338,10 +1376,12 @@ function initChart(){
   // Desktop click = place point directly (no Lock button needed)
   chart.subscribeClick(param=>{
     if(isTouchDevice) return; // mobile uses Lock button, not chart clicks
-    if(!drawTool || !param.point || !param.time) return;
+    if(!drawTool || !param.point) return;
     const price = candleSeries.coordinateToPrice(param.point.y);
     if(price == null) return;
-    const pt = {time: param.time, price};
+    // param.logical = fractional bar index — no snap
+    const t = (param.logical != null) ? logicalToTime(param.logical) : xToTime(param.point.x);
+    const pt = {time: t, price};
 
     if(drawTool==='horiz'){
       addHorizLine(price);
@@ -1445,7 +1485,14 @@ function startPricePoll(){
       const res = await proxyFetch(api(`/api/v1/contract/ticker?symbol=${currentSymbol}`));
       if(!res.ok){ log(`Price poll HTTP ${res.status}`,'warn'); return; }
       const d = await res.json();
-      if(!d.success){ log(`Ticker error: ${d.message||'unknown'}`,'warn'); return; }
+      if(!d.success){
+        // Rate-limited or transient — skip quietly (logged at most once a minute)
+        if(!window._lastTickErr || Date.now()-window._lastTickErr > 60000){
+          window._lastTickErr = Date.now();
+          log(`Ticker error: ${d.message||'unknown'} (will keep retrying quietly)`,'warn');
+        }
+        return;
+      }
       const ticker = Array.isArray(d.data) ? d.data[0] : d.data;
       if(!ticker){ log('No ticker data returned','warn'); return; }
       const p = parseFloat(ticker.lastPrice);
@@ -1468,7 +1515,7 @@ function startPricePoll(){
       if(botArmed) checkTriggers();
       if(activeTrade){ checkPriceExits(p); if(pnlOverlayOn) updatePnlOverlay(p); renderTradesPanel(); }
     }catch{}
-  },3000);
+  },5000);
 }
 
 async function refreshLatestCandles(){
@@ -1581,16 +1628,58 @@ function removePreview(){ if(previewLine){try{chart.removeSeries(previewLine);}c
 
 // ── TREND LINES ────────────────────────────────
 let tlIdCounter=0;
+const TF_SECONDS = {'1m':60,'5m':300,'15m':900,'1h':3600,'4h':14400,'1d':86400};
+
+// Fractional time mapping — crypto klines are uniformly spaced so
+// logical index <-> time is linear. This lets lines anchor BETWEEN candles.
+function timeToLogical(t){
+  if(!candles.length) return 0;
+  const step = TF_SECONDS[currentTf]||900;
+  return (t - candles[0].time)/step;
+}
+function logicalToTime(L){
+  if(!candles.length) return Math.floor(Date.now()/1000);
+  const step = TF_SECONDS[currentTf]||900;
+  return candles[0].time + L*step;
+}
+function xToTime(cx){
+  // fractional, never snaps to a candle
+  try{
+    const L = chart.timeScale().coordinateToLogical(cx);
+    if(L != null) return logicalToTime(L);
+  }catch(e){}
+  return Math.floor(Date.now()/1000);
+}
+function timeToX(t){
+  try{ return chart.timeScale().logicalToCoordinate(timeToLogical(t)); }catch(e){ return null; }
+}
+
 function buildLinePoints(p1,p2){
-  const times=candles.map(c=>c.time);
-  if(!times.length) return[p1,p2];
-  const slope=(p2.price-p1.price)/(p2.time-p1.time);
+  // The line spans exactly p1 → p2. Drag an endpoint into the future to extend it.
+  let a=p1, b=p2;
+  if(b.time < a.time){ a=p2; b=p1; }
+  const step = TF_SECONDS[currentTf]||900;
+  const slope=(b.price-a.price)/((b.time-a.time)||step);
   const pts=[];
-  for(const t of times){
-    if(t>=Math.min(p1.time,p2.time)-86400)
-      pts.push({time:t,value:p1.price+slope*(t-p1.time)});
+  const startT = a.time, endT = b.time;
+  // grid points at candle times within the span
+  for(const c of candles){
+    if(c.time >= startT && c.time <= endT)
+      pts.push({time:c.time, value:a.price+slope*(c.time-a.time)});
   }
-  return pts.length>=2?pts:[{time:p1.time,value:p1.price},{time:p2.time,value:p2.price}];
+  // synthetic grid points beyond the last candle (future) up to endT
+  const lastT = candles.length ? candles[candles.length-1].time : startT;
+  for(let t=lastT+step; t<=endT; t+=step){
+    pts.push({time:t, value:a.price+slope*(t-a.time)});
+  }
+  // exact endpoints (snapped to grid second) so the line starts/ends precisely
+  const gridA = Math.round(a.time), gridB = Math.round(b.time);
+  if(!pts.length || pts[0].time > gridA) pts.unshift({time:gridA, value:a.price});
+  if(pts[pts.length-1].time < gridB) pts.push({time:gridB, value:b.price});
+  // de-dup ascending
+  const out=[]; let prev=-Infinity;
+  for(const p of pts){ if(p.time>prev){ out.push(p); prev=p.time; } }
+  return out.length>=2?out:[{time:gridA,value:a.price},{time:gridA+step,value:b.price}];
 }
 function priceOnLineAt(tl,t){
   if(tl.isHoriz) return tl.horizPrice;
@@ -1598,6 +1687,13 @@ function priceOnLineAt(tl,t){
   return tl.p1.price+slope*(t-tl.p1.time);
 }
 function addTrendLine(p1,p2){
+  // Guard: both points on the same candle → vertical line that hugs the wick.
+  // Push p2 one bar forward so the line always has a real slope.
+  if(p2.time === p1.time){
+    p2 = {time: p1.time + (TF_SECONDS[currentTf]||900), price: p2.price};
+  }
+  // Ensure p1 is the earlier point so slope math stays sane
+  if(p2.time < p1.time){ const tmp=p1; p1=p2; p2=tmp; }
   const id=++tlIdCounter;
   const color = selectedLineColor || '#ffffff';
   const s=chart.addLineSeries({color,lineWidth:2,lastValueVisible:false,priceLineVisible:false});
@@ -1612,9 +1708,13 @@ function addHorizLine(price){
   const id = ++tlIdCounter;
   const color = selectedLineColor || '#ffffff';
   const s = chart.addLineSeries({color, lineWidth:2, lineStyle:0, lastValueVisible:true, priceLineVisible:false});
-  // Horizontal: same price across all candle times
+  // Horizontal: same price across all candle times + 150 future bars
   if(candles.length){
-    s.setData(candles.map(k=>({time:k.time, value:price})));
+    const step = TF_SECONDS[currentTf]||900;
+    const lastT = candles[candles.length-1].time;
+    const pts = candles.map(k=>({time:k.time, value:price}));
+    for(let i=1;i<=150;i++) pts.push({time:lastT+i*step, value:price});
+    s.setData(pts);
   } else {
     const now = Math.floor(Date.now()/1000);
     s.setData([{time:now-3600,value:price},{time:now,value:price}]);
@@ -1626,9 +1726,143 @@ function addHorizLine(price){
   log(`Horizontal Line #${id} @ $${price.toFixed(4)}`,'ok');
 }
 
+// ── LINE SELECT & DRAG ─────────────────────────
+// Tap a line to select it (it thickens, endpoint handles appear).
+// Drag the body up/down — angle preserved. Drag a handle to move/extend
+// that endpoint anywhere, including into the future. Tap empty space to deselect.
+let selectedLine = null;
+let lineDrag = null; // {mode:'body'|'p1'|'p2', lastPrice, lastTime}
+
+function rebuildHorizData(tl){
+  const ptsStep = TF_SECONDS[currentTf]||900;
+  const lastT = candles.length ? candles[candles.length-1].time : Math.floor(Date.now()/1000);
+  const pts = candles.map(k=>({time:k.time, value:tl.horizPrice}));
+  for(let i=1;i<=150;i++) pts.push({time:lastT+i*ptsStep, value:tl.horizPrice});
+  tl.series.setData(pts);
+}
+
+function lineYAtX(tl, cx){
+  // pixel y of the line at pixel x (null if not under this x)
+  if(tl.isHoriz) return candleSeries.priceToCoordinate(tl.horizPrice);
+  const t = xToTime(cx);
+  const lo = Math.min(tl.p1.time, tl.p2.time), hi = Math.max(tl.p1.time, tl.p2.time);
+  if(t < lo || t > hi) return null;
+  return candleSeries.priceToCoordinate(priceOnLineAt(tl, t));
+}
+
+function hitTestLines(cx, cy){
+  // endpoints first (bigger targets)
+  if(selectedLine && !selectedLine.isHoriz){
+    for(const end of ['p1','p2']){
+      const ex = timeToX(selectedLine[end].time);
+      const ey = candleSeries.priceToCoordinate(selectedLine[end].price);
+      if(ex!=null && ey!=null && Math.hypot(cx-ex, cy-ey) < 28){
+        return { tl: selectedLine, mode: end };
+      }
+    }
+  }
+  for(const tl of trendLines){
+    const y = lineYAtX(tl, cx);
+    if(y!=null && Math.abs(cy-y) < 18) return { tl, mode:'body' };
+  }
+  return null;
+}
+
+function selectLine(tl){
+  if(selectedLine && selectedLine !== tl){
+    try{ selectedLine.series.applyOptions({lineWidth:2}); }catch(e){}
+  }
+  selectedLine = tl;
+  if(tl){ try{ tl.series.applyOptions({lineWidth:4}); }catch(e){} }
+  updateLineHandles();
+}
+
+function updateLineHandles(){
+  ['h1','h2'].forEach((hid,i)=>{
+    let el = document.getElementById('linehandle-'+hid);
+    if(!selectedLine || selectedLine.isHoriz){
+      if(el) el.style.display='none';
+      return;
+    }
+    const pt = i===0 ? selectedLine.p1 : selectedLine.p2;
+    const x = timeToX(pt.time);
+    const y = candleSeries.priceToCoordinate(pt.price);
+    if(x==null || y==null){ if(el) el.style.display='none'; return; }
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'linehandle-'+hid;
+      el.style.cssText = 'position:absolute;width:16px;height:16px;border-radius:50%;border:2px solid #fff;transform:translate(-50%,-50%);pointer-events:none;z-index:18;box-shadow:0 0 6px rgba(0,0,0,.6);';
+      document.querySelector('.chart-wrap').appendChild(el);
+    }
+    el.style.background = selectedLine.color || '#fff';
+    const chartElRef = document.getElementById('chart');
+    const wrapR = chartElRef.parentElement.getBoundingClientRect();
+    const chartR = chartElRef.getBoundingClientRect();
+    el.style.left = (x + (chartR.left - wrapR.left))+'px';
+    el.style.top  = (y + (chartR.top  - wrapR.top))+'px';
+    el.style.display = 'block';
+  });
+}
+
+function lineDragStart(cx, cy){
+  const hit = hitTestLines(cx, cy);
+  if(!hit){
+    if(selectedLine) selectLine(null);
+    return false;
+  }
+  selectLine(hit.tl);
+  lineDrag = {
+    mode: hit.mode,
+    lastPrice: candleSeries.coordinateToPrice(cy),
+    lastTime: xToTime(cx),
+  };
+  navigator.vibrate&&navigator.vibrate(25);
+  return true;
+}
+
+function lineDragMove(cx, cy){
+  if(!lineDrag || !selectedLine) return;
+  const tl = selectedLine;
+  const price = candleSeries.coordinateToPrice(cy);
+  const t = xToTime(cx);
+  if(price==null) return;
+
+  if(lineDrag.mode==='body'){
+    const dPrice = price - lineDrag.lastPrice;
+    if(tl.isHoriz){
+      tl.horizPrice += dPrice;
+      tl.p1.price = tl.horizPrice; tl.p2.price = tl.horizPrice;
+      rebuildHorizData(tl);
+    } else {
+      tl.p1 = {time: tl.p1.time, price: tl.p1.price + dPrice};
+      tl.p2 = {time: tl.p2.time, price: tl.p2.price + dPrice};
+      tl.series.setData(buildLinePoints(tl.p1, tl.p2));
+    }
+    lineDrag.lastPrice = price;
+  } else {
+    // endpoint drag — free move incl. into the future
+    const step = TF_SECONDS[currentTf]||900;
+    const other = lineDrag.mode==='p1' ? tl.p2 : tl.p1;
+    let newT = t;
+    if(Math.abs(newT - other.time) < step) newT = other.time + (newT>=other.time?step:-step);
+    tl[lineDrag.mode] = {time: newT, price};
+    tl.series.setData(buildLinePoints(tl.p1, tl.p2));
+  }
+  updateLineHandles();
+}
+
+function lineDragEnd(){
+  if(!lineDrag) return;
+  lineDrag = null;
+  renderTlList();
+  updateLineHandles();
+  if(botArmed) log('Line moved — re-arm bot(s) to use the new position','warn');
+}
+
 function removeTrendLine(id){
   const idx=trendLines.findIndex(t=>t.id===id);
   if(idx===-1)return;
+  if(selectedLine && selectedLine.id===id){ selectedLine=null; updateLineHandles(); }
   try{chart.removeSeries(trendLines[idx].series);}catch{}
   trendLines.splice(idx,1);
   removeLineLabel(id);
@@ -1636,6 +1870,7 @@ function removeTrendLine(id){
   updateLineTriggerSelect();
 }
 function clearAllLines(){
+  selectedLine=null; updateLineHandles();
   trendLines.forEach(tl=>{try{chart.removeSeries(tl.series);}catch{}; removeLineLabel(tl.id);});
   trendLines=[];
   renderTlList();
@@ -2156,7 +2391,7 @@ function renderTradesPanel(){
   const dir = t.side==='BUY'?1:-1;
   const lev = t.leverage||1;
   const rawPct = (p - t.entryPrice)/t.entryPrice*100*dir*lev;
-  const dollarPnl = (p - t.entryPrice)*t.qty*dir*lev;
+  const dollarPnl = (p - t.entryPrice)*t.qty*CONTRACT_SIZE*dir;
   const bal = getStartBalance();
   const acctPct = (realizedPnlDollars+dollarPnl)/bal*100;
   const sign = rawPct>=0?'+':'';
