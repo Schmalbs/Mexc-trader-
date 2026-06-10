@@ -1679,8 +1679,11 @@ function buildLinePoints(p1,p2){
       pts.push({time:c.time, value:a.price+slope*(c.time-a.time)});
   }
   // synthetic grid points beyond the last candle (future) up to endT
+  // HARD CAP: max 500 bars into the future, prevents runaway extension
   const lastT = candles.length ? candles[candles.length-1].time : startT;
-  for(let t=lastT+step; t<=endT; t+=step){
+  const maxFutureT = lastT + 500*step;
+  const cappedEndT = Math.min(endT, maxFutureT);
+  for(let t=lastT+step; t<=cappedEndT; t+=step){
     pts.push({time:t, value:a.price+slope*(t-a.time)});
   }
   // exact endpoints (snapped to grid second) so the line starts/ends precisely
@@ -1822,10 +1825,14 @@ function lineDragStart(cx, cy){
     return false;
   }
   selectLine(hit.tl);
+  let savedRange = null;
+  try{ savedRange = chart.timeScale().getVisibleLogicalRange(); }catch(e){}
   lineDrag = {
     mode: hit.mode,
     lastPrice: candleSeries.coordinateToPrice(cy),
     lastTime: xToTime(cx),
+    savedRange,
+    lastMoveAt: 0,
   };
   navigator.vibrate&&navigator.vibrate(25);
   return true;
@@ -1833,6 +1840,11 @@ function lineDragStart(cx, cy){
 
 function lineDragMove(cx, cy){
   if(!lineDrag || !selectedLine) return;
+  // Throttle: max ~25 updates/sec — keeps the chart responsive
+  const now = Date.now();
+  if(now - lineDrag.lastMoveAt < 40) return;
+  lineDrag.lastMoveAt = now;
+
   const tl = selectedLine;
   const price = candleSeries.coordinateToPrice(cy);
   const t = xToTime(cx);
@@ -1854,11 +1866,22 @@ function lineDragMove(cx, cy){
     // endpoint drag — free move incl. into the future
     const step = TF_SECONDS[currentTf]||900;
     const other = lineDrag.mode==='p1' ? tl.p2 : tl.p1;
+    const lastT = candles.length ? candles[candles.length-1].time : t;
     let newT = t;
+    // Cap: endpoint can go max 400 bars into the future
+    newT = Math.min(newT, lastT + 400*step);
     if(Math.abs(newT - other.time) < step) newT = other.time + (newT>=other.time?step:-step);
     tl[lineDrag.mode] = {time: newT, price};
     tl.series.setData(buildLinePoints(tl.p1, tl.p2));
   }
+
+  // PIN THE VIEW: adding future points stretches the time scale and shifts
+  // coordinates under the finger → runaway extension. Restoring the visible
+  // range each update keeps the chart still while dragging.
+  if(lineDrag.savedRange){
+    try{ chart.timeScale().setVisibleLogicalRange(lineDrag.savedRange); }catch(e){}
+  }
+
   updateLineHandles();
 }
 
