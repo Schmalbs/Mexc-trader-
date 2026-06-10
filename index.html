@@ -292,12 +292,12 @@
     <div id="drawInstruction"></div>
     <!-- Lock button for drawing points -->
     <button id="lockPointBtn" onclick="lockPoint()"
-      style="display:none;position:absolute;bottom:70px;left:50%;transform:translateX(-50%);
-      background:var(--warn);color:#000;border:none;border-radius:25px;padding:12px 24px;
-      font-family:var(--font-mono);font-size:13px;font-weight:700;cursor:pointer;
-      z-index:30;white-space:nowrap;box-shadow:0 4px 16px rgba(245,166,35,.5);
-      -webkit-tap-highlight-color:transparent;">
-      Move crosshair then tap here
+      style="display:none;position:absolute;bottom:8px;right:8px;
+      background:rgba(245,166,35,.9);color:#000;border:none;border-radius:6px;padding:5px 10px;
+      font-family:var(--font-mono);font-size:10px;font-weight:700;cursor:pointer;
+      z-index:30;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);
+      -webkit-tap-highlight-color:transparent;backdrop-filter:blur(4px);">
+      Lock
     </button>
     <!-- Touch drawing dot indicator -->
     <!-- Drawing crosshair overlay -->
@@ -351,10 +351,13 @@
       <div class="panel-title">Account</div>
       <div class="inline-row" style="align-items:flex-end;gap:6px;margin-bottom:8px;">
         <div class="form-row" style="flex:1;margin-bottom:0">
-          <div class="form-label">USDT Balance</div>
-          <input type="number" id="startBalance" value="1000" min="0" step="10"/>
+          <div class="form-label">USDT Balance <span style="color:var(--accent);font-size:8px;">● auto-sync</span></div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span id="balanceDisplay" style="font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--text);letter-spacing:2px;">••••••</span>
+            <button onclick="toggleBalanceVisible()" id="balanceEye" style="background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;padding:2px;">👁</button>
+          </div>
+          <input type="hidden" id="startBalance" value="1000"/>
         </div>
-        <button class="btn btn-accent2" style="font-size:11px;padding:5px 10px;flex-shrink:0" onclick="fetchAccountBalance()">↻ Sync</button>
         <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px;flex-shrink:0" onclick="resetAccountPnl()">Reset</button>
       </div>
       <div id="balanceStatus" style="font-size:10px;font-family:var(--font-mono);color:var(--muted);margin-bottom:6px;display:none"></div>
@@ -929,6 +932,27 @@ const TF_MAP = {'1m':'Min1','5m':'Min5','15m':'Min15','1h':'Hour1','4h':'Hour4',
 // ── ACCOUNT P&L ────────────────────────────────
 function getStartBalance(){ return parseFloat(document.getElementById('startBalance').value)||1000; }
 
+// ── BALANCE VISIBILITY ──
+let balanceVisible = false;
+function toggleBalanceVisible(){
+  balanceVisible = !balanceVisible;
+  updateBalanceDisplay();
+}
+function updateBalanceDisplay(){
+  const el = document.getElementById('balanceDisplay');
+  if(!el) return;
+  if(balanceVisible){
+    el.textContent = '$' + getStartBalance().toFixed(2);
+    document.getElementById('balanceEye').textContent = '🙈';
+  } else {
+    el.textContent = '••••••';
+    document.getElementById('balanceEye').textContent = '👁';
+  }
+}
+
+// ── AUTO-SYNC every 30s when logged in ──
+setInterval(()=>{ if(authToken) fetchAccountBalance(true); }, 30000);
+
 function updateAccountBadge(currentPrice){
   const bal = getStartBalance();
   let unrealizedDollars = 0;
@@ -975,12 +999,14 @@ function resetAccountPnl(){
   log('Account P&L reset.','warn');
 }
 
-async function fetchAccountBalance(){
+async function fetchAccountBalance(silent){
   const statusEl  = document.getElementById('balanceStatus');
-  if(!authToken){ log('Log in first.','err'); return; }
-  statusEl.style.display = 'block';
-  statusEl.style.color = 'var(--muted)';
-  statusEl.textContent = '↻ Fetching balance...';
+  if(!authToken){ if(!silent) log('Log in first.','err'); return; }
+  if(!silent){
+    statusEl.style.display = 'block';
+    statusEl.style.color = 'var(--muted)';
+    statusEl.textContent = '↻ Fetching balance...';
+  }
   try{
     const res = await fetch(PROXY+'/account/balance',{headers:authHeaders()});
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -989,21 +1015,18 @@ async function fetchAccountBalance(){
     const frozen = d.frozen || 0;
     const total  = d.total  || 0;
     document.getElementById('startBalance').value = total.toFixed(2);
-    realizedPnlDollars = 0;
-    tradeCount = 0;
+    updateBalanceDisplay();
     updateAccountBadge(lastPrice);
-    statusEl.style.color = 'var(--accent)';
-    statusEl.textContent = `✓ Futures USDT: $${total.toFixed(2)}  (available: $${free.toFixed(2)}  frozen: $${frozen.toFixed(2)})`;
-    log(`Futures account synced — USDT: $${total.toFixed(2)} (available: $${free.toFixed(2)}, frozen: $${frozen.toFixed(2)})`,'ok');
+    if(!silent){
+      statusEl.style.color = 'var(--accent)';
+      statusEl.textContent = `✓ Balance synced`;
+      log(`Futures account synced ✓`,'ok');
+    }
     // Show connected state
     document.getElementById('connPill').className='pill pill-green';
     document.getElementById('connPill').textContent='● CONNECTED';
     // Fetch any open positions on MEXC
     fetchOpenPositions();
-    const others = assets.filter(a => a.currency !== 'USDT' && (parseFloat(a.availableBalance)+parseFloat(a.frozenBalance)) > 0);
-    if(others.length){
-      log(`Other assets: ${others.map(a=>`${a.currency}: ${(parseFloat(a.availableBalance)+parseFloat(a.frozenBalance)).toFixed(4)}`).join(' | ')}`,'info');
-    }
   }catch(e){
     statusEl.style.color = 'var(--danger)';
     statusEl.textContent = `✗ ${e.message} — check keys or enable CORS proxy`;
