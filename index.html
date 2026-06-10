@@ -918,6 +918,11 @@ async function fetchAccountBalance(){
     statusEl.style.color = 'var(--accent)';
     statusEl.textContent = `✓ Futures USDT: $${total.toFixed(2)}  (available: $${free.toFixed(2)}  frozen: $${frozen.toFixed(2)})`;
     log(`Futures account synced — USDT: $${total.toFixed(2)} (available: $${free.toFixed(2)}, frozen: $${frozen.toFixed(2)})`,'ok');
+    // Show connected state
+    document.getElementById('connPill').className='pill pill-green';
+    document.getElementById('connPill').textContent='● CONNECTED';
+    // Fetch any open positions on MEXC
+    fetchOpenPositions();
     const others = assets.filter(a => a.currency !== 'USDT' && (parseFloat(a.availableBalance)+parseFloat(a.frozenBalance)) > 0);
     if(others.length){
       log(`Other assets: ${others.map(a=>`${a.currency}: ${(parseFloat(a.availableBalance)+parseFloat(a.frozenBalance)).toFixed(4)}`).join(' | ')}`,'info');
@@ -928,6 +933,43 @@ async function fetchAccountBalance(){
     log(`Balance fetch failed: ${e.message}`,'err');
   }
 }
+
+// ── OPEN POSITIONS FROM MEXC ──────────────────
+let mexcPositions = []; // positions fetched from MEXC futures account
+
+async function fetchOpenPositions(){
+  const apiKey    = document.getElementById('apiKey').value.trim();
+  const apiSecret = document.getElementById('apiSecret').value.trim();
+  if(!apiKey || !apiSecret) return;
+  try{
+    const timestamp = Date.now();
+    const signature = await signHmac(apiSecret, apiKey + timestamp);
+    const res = await proxyFetch(api('/api/v1/private/position/open_positions'),{
+      headers:{
+        'ApiKey': apiKey,
+        'Request-Time': String(timestamp),
+        'Signature': signature,
+        'Content-Type': 'application/json'
+      }
+    });
+    if(!res.ok) return;
+    const data = await res.json();
+    if(!data.success) return;
+    mexcPositions = (data.data || []).filter(p => parseFloat(p.holdVol) > 0);
+    if(mexcPositions.length){
+      log(`Found ${mexcPositions.length} open position(s) on MEXC`,'ok');
+    }
+    renderTradesPanel();
+  }catch(e){
+    log(`Position fetch failed: ${e.message}`,'warn');
+  }
+}
+
+// Refresh positions every 15 seconds when connected
+setInterval(()=>{
+  const apiKey = document.getElementById('apiKey');
+  if(apiKey && apiKey.value.trim()) fetchOpenPositions();
+}, 15000);
 
 // ── CHART INIT ─────────────────────────────────
 function initChart(){
@@ -1602,11 +1644,53 @@ function registerTrade(trade){
 function renderTradesPanel(){
   const list = document.getElementById('tradesList');
   const sub  = document.getElementById('tradesPanelSub');
-  if(!activeTrade){
+
+  let html = '';
+  let count = 0;
+
+  // ── MEXC positions (from exchange) ──
+  for(const pos of mexcPositions){
+    count++;
+    const isLong = pos.positionType === 1;
+    const entry  = parseFloat(pos.openAvgPrice||pos.holdAvgPrice||0);
+    const vol    = parseFloat(pos.holdVol||0);
+    const lev    = parseInt(pos.leverage||1);
+    const p      = lastPrice || entry;
+    const dir    = isLong ? 1 : -1;
+    const rawPct = entry>0 ? (p-entry)/entry*100*dir*lev : 0;
+    const sign   = rawPct>=0?'+':'';
+    const pnlCls = rawPct>0?'pos':rawPct<0?'neg':'zero';
+    const fmt    = v => v<1?v.toFixed(6):v<100?v.toFixed(4):v.toFixed(2);
+    html += `
+    <div class="trade-card ${isLong?'buy-card':'sell-card'}">
+      <div class="tc-header">
+        <div>
+          <div class="tc-side ${isLong?'buy':'sell'}">${isLong?'▲ LONG':'▼ SHORT'}</div>
+          <div class="tc-symbol">${pos.symbol} • MEXC position</div>
+        </div>
+        ${lev>1?`<span class="tc-lev">${lev}×</span>`:''}
+      </div>
+      <div class="tc-pnl ${pnlCls}">${sign}${rawPct.toFixed(2)}%</div>
+      <div class="tc-rows">
+        <div class="tc-row"><span class="tc-key">Entry</span><span class="tc-val">$${fmt(entry)}</span></div>
+        <div class="tc-row"><span class="tc-key">Current</span><span class="tc-val">$${fmt(p)}</span></div>
+        <div class="tc-row"><span class="tc-key">Volume</span><span class="tc-val">${vol}</span></div>
+      </div>
+    </div>`;
+  }
+
+  if(!activeTrade && count===0){
     list.innerHTML = '<div class="tc-empty">No open trades</div>';
     sub.textContent = 'No open trades';
     return;
   }
+
+  if(!activeTrade){
+    sub.textContent = `${count} open on MEXC`;
+    list.innerHTML = html;
+    return;
+  }
+  count++;
   const t = activeTrade;
   const p = lastPrice || t.entryPrice;
   const dir = t.side==='BUY'?1:-1;
@@ -1624,9 +1708,9 @@ function renderTradesPanel(){
   const slProgress = Math.min(100,Math.max(0,-rawPct/slPct*100));
   const fmt = v => v<1?v.toFixed(6):v<100?v.toFixed(4):v.toFixed(2);
 
-  sub.textContent = `1 open — ${t.side} ${currentSymbol}`;
+  sub.textContent = `${count} open trade${count>1?'s':''}`;
 
-  list.innerHTML = `
+  list.innerHTML = html + `
     <div class="trade-card ${t.side==='BUY'?'buy-card':'sell-card'}">
       <div class="tc-header">
         <div>
