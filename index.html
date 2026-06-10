@@ -183,6 +183,41 @@
     .main{flex-direction:column;}
     header{height:auto;padding:8px;}
   }
+  /* ── OPEN TRADES PANEL ── */
+  .trades-panel{background:var(--surface);border-left:1px solid var(--border);width:260px;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;}
+  .trade-card{background:var(--panel);border-radius:8px;border:1px solid var(--border);padding:12px;margin-bottom:8px;position:relative;overflow:hidden;}
+  .trade-card.buy-card{border-left:3px solid var(--accent);}
+  .trade-card.sell-card{border-left:3px solid var(--danger);}
+  .tc-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+  .tc-side{font-family:var(--font-mono);font-size:12px;font-weight:700;letter-spacing:1px;}
+  .tc-side.buy{color:var(--accent);}
+  .tc-side.sell{color:var(--danger);}
+  .tc-pnl{font-family:var(--font-mono);font-size:18px;font-weight:700;line-height:1;}
+  .tc-pnl.pos{color:var(--accent);}
+  .tc-pnl.neg{color:var(--danger);}
+  .tc-pnl.zero{color:var(--muted);}
+  .tc-acct{font-family:var(--font-mono);font-size:10px;margin-top:2px;}
+  .tc-acct.pos{color:var(--accent);}
+  .tc-acct.neg{color:var(--danger);}
+  .tc-rows{display:flex;flex-direction:column;gap:4px;margin:8px 0;}
+  .tc-row{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:11px;}
+  .tc-key{color:var(--muted);}
+  .tc-val{color:var(--text);font-weight:500;}
+  .tc-bars{display:flex;gap:6px;margin:8px 0 6px;}
+  .tc-bar-wrap{flex:1;}
+  .tc-bar-lbl{font-size:9px;color:var(--muted);font-family:var(--font-mono);margin-bottom:2px;}
+  .tc-bar-track{height:3px;background:var(--border);border-radius:2px;overflow:hidden;}
+  .tc-bar-fill{height:100%;border-radius:2px;transition:width .4s;}
+  .tc-bar-fill.tp{background:var(--accent);}
+  .tc-bar-fill.sl{background:var(--danger);}
+  .tc-close{width:100%;padding:6px;border-radius:5px;border:1px solid var(--warn);background:rgba(245,166,35,.1);color:var(--warn);font-family:var(--font-mono);font-size:11px;font-weight:600;cursor:pointer;transition:background .15s;margin-top:4px;}
+  .tc-close:hover{background:rgba(245,166,35,.25);}
+  .tc-empty{font-family:var(--font-mono);font-size:11px;color:var(--muted);text-align:center;padding:24px 0;}
+  .tc-symbol{font-family:var(--font-mono);font-size:10px;color:var(--muted);}
+  .tc-lev{font-family:var(--font-mono);font-size:10px;color:var(--accent2);background:rgba(61,127,255,.15);border-radius:3px;padding:1px 5px;}
+
+  @media(max-width:900px){.trades-panel{display:none;}}
+
   ::-webkit-scrollbar{width:4px;height:4px;}
   ::-webkit-scrollbar-track{background:transparent;}
   ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
@@ -610,6 +645,17 @@
       <div class="log-box" id="logBox"></div>
     </div>
   </div>
+
+  <!-- ── OPEN TRADES PANEL ── -->
+  <div class="trades-panel" id="tradesPanel">
+    <div style="padding:14px;border-bottom:1px solid var(--border);flex-shrink:0;">
+      <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Open Trades</div>
+      <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);" id="tradesPanelSub">No open trades</div>
+    </div>
+    <div style="padding:10px;flex:1;overflow-y:auto;" id="tradesList">
+      <div class="tc-empty">No open trades</div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -634,7 +680,8 @@ let selectedLineColor = '#ffffff';
 // exitTypeState tracks 'pct' or 'price' for each of the 4 exit inputs
 const exitTypeState = { manualTp:'pct', manualSl:'pct', botTp:'pct', botSl:'pct' };
 const qtyModeState = { manual:'base', bot:'base' };
-let pnlDisplayMode = '$';   // '$' or '%'
+let pnlDisplayMode  = '$';   // '$' or '%'
+let tradePanelMode  = '%';   // '%' or '$' — trades panel P&L display
 let headerPnlMode  = '%';   // header badge toggles between '%' and '$'
 
 function setQtyMode(section, mode){
@@ -1037,7 +1084,7 @@ function startPricePoll(){
       updatePrice(p);
       updateAccountBadge(p);
       if(botArmed) checkTriggers();
-      if(activeTrade){ checkPriceExits(p); if(pnlOverlayOn) updatePnlOverlay(p); }
+      if(activeTrade){ checkPriceExits(p); if(pnlOverlayOn) updatePnlOverlay(p); renderTradesPanel(); }
     }catch{}
   },3000);
 }
@@ -1481,10 +1528,12 @@ async function executeEntry({side,entryPrice,tpPrice,slPrice,qty,leverage=1,marg
 }
 
 function registerTrade(trade){
+  trade.id = Date.now(); // unique id for this trade
+  trade.openTime = new Date().toLocaleTimeString();
   activeTrade=trade;
   lastTpCandleTime=null; lastSlCandleTime=null;
   tradeCount++;
-  // Show active trade card
+  // Update side panel card
   document.getElementById('activeTradeCard').style.display='block';
   document.getElementById('atcSide').textContent=trade.side;
   document.getElementById('atcSide').style.color=trade.side==='BUY'?'var(--accent)':'var(--danger)';
@@ -1496,6 +1545,95 @@ function registerTrade(trade){
   if(candleExitInterval) clearInterval(candleExitInterval);
   candleExitInterval=setInterval(checkCandleExits,5000);
   updateAccountBadge(lastPrice);
+  renderTradesPanel();
+}
+
+function renderTradesPanel(){
+  const list = document.getElementById('tradesList');
+  const sub  = document.getElementById('tradesPanelSub');
+  if(!activeTrade){
+    list.innerHTML = '<div class="tc-empty">No open trades</div>';
+    sub.textContent = 'No open trades';
+    return;
+  }
+  const t = activeTrade;
+  const p = lastPrice || t.entryPrice;
+  const dir = t.side==='BUY'?1:-1;
+  const lev = t.leverage||1;
+  const rawPct = (p - t.entryPrice)/t.entryPrice*100*dir*lev;
+  const dollarPnl = (p - t.entryPrice)*t.qty*dir*lev;
+  const bal = getStartBalance();
+  const acctPct = (realizedPnlDollars+dollarPnl)/bal*100;
+  const sign = rawPct>=0?'+':'';
+  const acctSign = acctPct>=0?'+':'';
+  const pnlClass = rawPct>0?'pos':rawPct<0?'neg':'zero';
+  const tpPct = Math.abs((t.tpPrice-t.entryPrice)/t.entryPrice*100*lev);
+  const slPct = Math.abs((t.slPrice-t.entryPrice)/t.entryPrice*100*lev);
+  const tpProgress = Math.min(100,Math.max(0,rawPct/tpPct*100));
+  const slProgress = Math.min(100,Math.max(0,-rawPct/slPct*100));
+  const fmt = v => v<1?v.toFixed(6):v<100?v.toFixed(4):v.toFixed(2);
+
+  sub.textContent = `1 open — ${t.side} ${currentSymbol}`;
+
+  list.innerHTML = `
+    <div class="trade-card ${t.side==='BUY'?'buy-card':'sell-card'}">
+      <div class="tc-header">
+        <div>
+          <div class="tc-side ${t.side==='BUY'?'buy':'sell'}">${t.side==='BUY'?'▲ LONG':'▼ SHORT'}</div>
+          <div class="tc-symbol">${currentSymbol} ${lev>1?`• ${lev}×`:''} • ${t.openTime}</div>
+        </div>
+        ${lev>1?`<span class="tc-lev">${lev}×</span>`:''}
+      </div>
+
+      <!-- P&L toggle -->
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;">
+        <div class="tc-pnl ${pnlClass}" id="tc-pnl-main">
+          ${tradePanelMode==='%'
+            ? `${sign}${rawPct.toFixed(2)}%`
+            : `${dollarPnl>=0?'+':''}$${Math.abs(dollarPnl).toFixed(2)}`}
+        </div>
+        <button onclick="toggleTradePanelMode()" style="background:none;border:1px solid var(--border);color:var(--muted);font-family:var(--font-mono);font-size:9px;padding:2px 6px;border-radius:3px;cursor:pointer;">
+          ${tradePanelMode==='%'?'show $':'show %'}
+        </button>
+      </div>
+      <div class="tc-acct ${pnlClass}">
+        ${tradePanelMode==='%'
+          ? `${acctSign}${acctPct.toFixed(2)}% of account`
+          : `${acctSign}${(acctPct).toFixed(2)}% of account`}
+      </div>
+
+      <div class="tc-rows">
+        <div class="tc-row"><span class="tc-key">Entry</span><span class="tc-val">$${fmt(t.entryPrice)}</span></div>
+        <div class="tc-row"><span class="tc-key">Current</span><span class="tc-val" id="tc-current">$${fmt(p)}</span></div>
+        <div class="tc-row"><span class="tc-key">Qty</span><span class="tc-val">${t.qty}</span></div>
+        <div class="tc-row" style="margin-top:4px">
+          <span class="tc-key">TP</span>
+          <span class="tc-val" style="color:var(--accent)">$${fmt(t.tpPrice)} (+${tpPct.toFixed(2)}%)</span>
+        </div>
+        <div class="tc-row">
+          <span class="tc-key">SL</span>
+          <span class="tc-val" style="color:var(--danger)">$${fmt(t.slPrice)} (-${slPct.toFixed(2)}%)</span>
+        </div>
+      </div>
+
+      <div class="tc-bars">
+        <div class="tc-bar-wrap">
+          <div class="tc-bar-lbl">TO TP</div>
+          <div class="tc-bar-track"><div class="tc-bar-fill tp" style="width:${tpProgress}%"></div></div>
+        </div>
+        <div class="tc-bar-wrap">
+          <div class="tc-bar-lbl">TO SL</div>
+          <div class="tc-bar-track"><div class="tc-bar-fill sl" style="width:${slProgress}%"></div></div>
+        </div>
+      </div>
+
+      <button class="tc-close" onclick="manualCloseTrade()">⚡ Close Trade</button>
+    </div>`;
+}
+
+function toggleTradePanelMode(){
+  tradePanelMode = tradePanelMode==='%' ? '$' : '%';
+  renderTradesPanel();
 }
 
 // ── EXIT CHECKS ────────────────────────────────
@@ -1566,6 +1704,7 @@ function exitTrade(reason, price, method){
   document.getElementById('tradeMonitor').classList.remove('visible');
   document.getElementById('activeTradeCard').style.display='none';
   updateAccountBadge(lastPrice);
+  renderTradesPanel();
   // Place exit order
   const exitSide=side==='BUY'?'SELL':'BUY';
   placeExitOrder(exitSide,qty);
