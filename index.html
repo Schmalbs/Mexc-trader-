@@ -1000,9 +1000,12 @@ function initChart(){
     crosshairVisible = true;
 
     // Show visual overlay at offset position
+    // CRITICAL: align overlay with #chart element (not chart-wrap which includes toolbar)
     const dc = document.getElementById('drawCrosshair');
+    const wrapRect = chartEl.parentElement.getBoundingClientRect();
     dc.style.display = 'block';
-    dc.style.left = '0'; dc.style.top = '0';
+    dc.style.left = (rect.left - wrapRect.left)+'px';
+    dc.style.top  = (rect.top  - wrapRect.top)+'px';
     dc.style.width = rect.width+'px'; dc.style.height = rect.height+'px';
     document.getElementById('dcVertical').style.left  = cx+'px';
     document.getElementById('dcHorizontal').style.top = cy+'px';
