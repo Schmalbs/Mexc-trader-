@@ -17,26 +17,26 @@
   body{background:var(--bg);color:var(--text);font-family:var(--font-ui);height:100vh;display:flex;flex-direction:column;overflow:hidden;}
 
   /* HEADER */
-  header{display:flex;align-items:center;gap:12px;padding:0 14px;height:52px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;}
-  .logo{font-family:var(--font-mono);font-weight:600;font-size:15px;color:var(--accent);letter-spacing:1px;white-space:nowrap;}
+  header{display:flex;align-items:center;gap:8px;padding:0 10px;height:36px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;}
+  .logo{font-family:var(--font-mono);font-weight:600;font-size:12px;color:var(--accent);letter-spacing:1px;white-space:nowrap;}
   .logo span{color:var(--muted);font-weight:400;}
   .header-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;}
 
   /* ACCOUNT BADGE */
   .acct-badge{display:flex;flex-direction:column;align-items:flex-end;margin-left:auto;gap:1px;}
-  .acct-pct{font-family:var(--font-mono);font-size:18px;font-weight:600;line-height:1;}
+  .acct-pct{font-family:var(--font-mono);font-size:13px;font-weight:600;line-height:1;}
   .acct-pct.pos{color:var(--accent);}
   .acct-pct.neg{color:var(--danger);}
   .acct-pct.zero{color:var(--muted);}
-  .acct-sub{font-family:var(--font-mono);font-size:9px;color:var(--muted);letter-spacing:1px;}
+  .acct-sub{font-family:var(--font-mono);font-size:8px;color:var(--muted);letter-spacing:1px;}
 
   /* INPUTS */
-  select,input[type=text],input[type=number],input[type=password]{background:var(--panel);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:12px;padding:5px 9px;border-radius:5px;outline:none;transition:border-color .15s;}
+  select,input[type=text],input[type=number],input[type=password]{background:var(--panel);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:11px;padding:3px 7px;border-radius:4px;outline:none;transition:border-color .15s;}
   select:focus,input:focus{border-color:var(--accent);}
   select{cursor:pointer;}
 
   /* BUTTONS */
-  .btn{padding:6px 14px;border-radius:5px;border:none;cursor:pointer;font-family:var(--font-mono);font-size:12px;font-weight:500;transition:opacity .15s,transform .1s;white-space:nowrap;}
+  .btn{padding:4px 10px;border-radius:4px;border:none;cursor:pointer;font-family:var(--font-mono);font-size:11px;font-weight:500;transition:opacity .15s,transform .1s;white-space:nowrap;}
   .btn:active{transform:scale(.97);}
   .btn-accent{background:var(--accent);color:#000;}
   .btn-accent2{background:var(--accent2);color:#fff;}
@@ -48,7 +48,7 @@
   .btn:disabled{opacity:.4;cursor:not-allowed;}
 
   /* PILLS */
-  .pill{font-family:var(--font-mono);font-size:11px;padding:3px 8px;border-radius:20px;white-space:nowrap;}
+  .pill{font-family:var(--font-mono);font-size:9px;padding:2px 6px;border-radius:20px;white-space:nowrap;}
   .pill-green{background:rgba(0,200,150,.15);color:var(--accent);border:1px solid rgba(0,200,150,.3);}
   .pill-red{background:rgba(255,77,106,.15);color:var(--danger);border:1px solid rgba(255,77,106,.3);}
   .pill-grey{background:rgba(107,116,148,.15);color:var(--muted);border:1px solid rgba(107,116,148,.3);}
@@ -61,9 +61,9 @@
   .chart-wrap.fullscreen{position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;z-index:1000!important;background:var(--bg);}
   .chart-wrap.fullscreen #chart{flex:1;}
   #fullscreenBtn{margin-left:auto;}
-  .chart-toolbar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;}
+  .chart-toolbar{display:flex;align-items:center;gap:5px;padding:3px 8px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;}
   .tf-btns{display:flex;gap:4px;}
-  .tf-btn{padding:3px 9px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:var(--font-mono);font-size:11px;cursor:pointer;transition:all .15s;}
+  .tf-btn{padding:2px 7px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:var(--font-mono);font-size:10px;cursor:pointer;transition:all .15s;}
   .tf-btn:hover{border-color:var(--accent);color:var(--accent);}
   .tf-btn.active{background:var(--accent);border-color:var(--accent);color:#000;font-weight:600;}
 
@@ -126,21 +126,21 @@
   .tm-close-btn:hover{background:rgba(245,166,35,.25);}
 
   /* SIDE PANEL */
-  .side-panel{width:300px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;}
-  .panel-section{padding:14px;border-bottom:1px solid var(--border);}
-  .panel-title{font-family:var(--font-mono);font-size:10px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:12px;}
+  .side-panel{width:220px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;}
+  .panel-section{padding:9px 10px;border-bottom:1px solid var(--border);}
+  .panel-title{font-family:var(--font-mono);font-size:9px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:6px;}
 
   /* QUICK TRADE */
   .quick-btns{display:flex;gap:6px;margin-bottom:10px;}
   .quick-btns .btn{flex:1;padding:8px 6px;font-size:12px;}
 
   /* FORMS */
-  .form-row{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;}
-  .form-label{font-size:11px;color:var(--muted);font-family:var(--font-mono);}
+  .form-row{display:flex;flex-direction:column;gap:2px;margin-bottom:6px;}
+  .form-label{font-size:10px;color:var(--muted);font-family:var(--font-mono);}
   .form-row input,.form-row select{width:100%;}
   .inline-row{display:flex;gap:8px;}
   .inline-row .form-row{flex:1;}
-  .sub-label{font-size:10px;color:var(--accent2);font-family:var(--font-mono);letter-spacing:1px;text-transform:uppercase;margin:8px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border);}
+  .sub-label{font-size:9px;color:var(--accent2);font-family:var(--font-mono);letter-spacing:1px;text-transform:uppercase;margin:5px 0 4px;padding-bottom:3px;border-bottom:1px solid var(--border);}
 
   /* TOGGLE */
   .toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
@@ -153,8 +153,8 @@
   .toggle input:checked+.toggle-slider:before{transform:translateX(16px);background:#fff;}
 
   /* TREND LINE LIST */
-  .tl-list{display:flex;flex-direction:column;gap:6px;max-height:150px;overflow-y:auto;}
-  .tl-item{display:flex;align-items:center;justify-content:space-between;background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:7px 10px;font-family:var(--font-mono);font-size:11px;gap:8px;}
+  .tl-list{display:flex;flex-direction:column;gap:4px;max-height:100px;overflow-y:auto;}
+  .tl-item{display:flex;align-items:center;justify-content:space-between;background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:4px 7px;font-family:var(--font-mono);font-size:10px;gap:6px;}
   .tl-item.armed{border-color:var(--accent);}
   .tl-item-info{flex:1;}
   .tl-name{color:var(--text);font-weight:500;}
@@ -175,16 +175,15 @@
   .log-entry.warn{color:var(--warn);}
   .log-entry.info{color:var(--accent2);}
 
-  .price-big{font-family:var(--font-mono);font-size:20px;font-weight:600;color:var(--text);letter-spacing:1px;}
+  .price-big{font-family:var(--font-mono);font-size:15px;font-weight:600;color:var(--text);letter-spacing:1px;}
   .price-change{font-family:var(--font-mono);font-size:12px;margin-top:2px;}
 
   @media(max-width:700px){
-    .side-panel{width:100%;max-height:45vh;border-left:none;border-top:1px solid var(--border);}
+    .side-panel{width:100%;max-height:40vh;border-left:none;border-top:1px solid var(--border);}
     .main{flex-direction:column;}
     header{height:auto;padding:8px;}
   }
-  /* ── OPEN TRADES PANEL ── */
-  .trades-panel{background:var(--surface);border-left:1px solid var(--border);width:260px;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;}
+  /* trades panel is now inline in side panel */
   .trade-card{background:var(--panel);border-radius:8px;border:1px solid var(--border);padding:12px;margin-bottom:8px;position:relative;overflow:hidden;}
   .trade-card.buy-card{border-left:3px solid var(--accent);}
   .trade-card.sell-card{border-left:3px solid var(--danger);}
@@ -216,7 +215,7 @@
   .tc-symbol{font-family:var(--font-mono);font-size:10px;color:var(--muted);}
   .tc-lev{font-family:var(--font-mono);font-size:10px;color:var(--accent2);background:rgba(61,127,255,.15);border-radius:3px;padding:1px 5px;}
 
-  @media(max-width:900px){.trades-panel{display:none;}}
+
 
   ::-webkit-scrollbar{width:4px;height:4px;}
   ::-webkit-scrollbar-track{background:transparent;}
@@ -228,10 +227,10 @@
 <header>
   <div class="logo">MEXC<span>/TREND</span></div>
   <div class="header-controls">
-    <input type="text" id="symbolInput" value="BTC_USDT" style="width:110px" placeholder="e.g. BTC_USDT"/>
-    <button class="btn btn-accent2" onclick="loadCandles()">Load</button>
-    <input type="password" id="apiKey" placeholder="API Key" style="width:110px"/>
-    <input type="password" id="apiSecret" placeholder="API Secret" style="width:110px"/>
+    <input type="text" id="symbolInput" value="BTC_USDT" style="width:80px;font-size:10px;padding:2px 6px" placeholder="Symbol"/>
+    <button class="btn btn-accent2" onclick="loadCandles()" style="padding:2px 8px;font-size:10px;">Load</button>
+    <input type="password" id="apiKey" placeholder="API Key" style="width:90px;font-size:10px;padding:2px 6px"/>
+    <input type="password" id="apiSecret" placeholder="API Secret" style="width:90px;font-size:10px;padding:2px 6px"/>
     <span id="connPill" class="pill pill-grey">● NOT CONNECTED</span>
     <!-- ACCOUNT % BADGE -->
     <div class="acct-badge" style="cursor:pointer" onclick="toggleHeaderPnlMode()" title="Click to toggle % / $">
@@ -639,6 +638,17 @@
       </div>
     </div>
 
+    <!-- OPEN TRADES -->
+    <div class="panel-section" id="tradesPanel">
+      <div class="panel-title" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>Open Trades</span>
+        <span id="tradesPanelSub" style="font-size:10px;color:var(--muted);font-weight:400;letter-spacing:0;text-transform:none;">No open trades</span>
+      </div>
+      <div id="tradesList">
+        <div class="tc-empty">No open trades</div>
+      </div>
+    </div>
+
     <!-- LOG -->
     <div class="panel-section" style="flex:1">
       <div class="panel-title">Activity Log</div>
@@ -646,16 +656,6 @@
     </div>
   </div>
 
-  <!-- ── OPEN TRADES PANEL ── -->
-  <div class="trades-panel" id="tradesPanel">
-    <div style="padding:14px;border-bottom:1px solid var(--border);flex-shrink:0;">
-      <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Open Trades</div>
-      <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);" id="tradesPanelSub">No open trades</div>
-    </div>
-    <div style="padding:10px;flex:1;overflow-y:auto;" id="tradesList">
-      <div class="tc-empty">No open trades</div>
-    </div>
-  </div>
 </div>
 
 <script>
@@ -974,15 +974,10 @@ function initChart(){
     const cy    = touch.clientY - rect.top - CROSSHAIR_OFFSET;
     if(cy < 0) return;
 
-    // Use canvas element for accurate coordinate conversion
-    const canvas = chartEl.querySelector('canvas');
-    const canvasRect = canvas ? canvas.getBoundingClientRect() : rect;
-    // Convert cy (relative to chartEl) to canvas-relative
-    const canvasCy = cy - (canvasRect.top - rect.top);
-    const canvasCx = cx - (canvasRect.left - rect.left);
-
-    const price = candleSeries.coordinateToPrice(canvasCy);
-    const time  = chart.timeScale().coordinateToTime(canvasCx);
+    // coordinateToPrice takes coords relative to the chart pane
+    // The chart fills chartEl so cx/cy are correct directly
+    const price = candleSeries.coordinateToPrice(cy);
+    const time  = chart.timeScale().coordinateToTime(cx);
     if(price == null) return;
 
     crosshairPt = {time: time||Math.floor(Date.now()/1000), price};
@@ -1024,6 +1019,7 @@ function initChart(){
   }, {passive:false});
 
   // Also track via chart's own crosshair for desktop
+  // ── DESKTOP: crosshair move + single click to place points ──
   chart.subscribeCrosshairMove(param=>{
     if(!drawTool || !param.point || !param.time) return;
     const price = candleSeries.coordinateToPrice(param.point.y);
@@ -1031,12 +1027,53 @@ function initChart(){
     crosshairPt = {time: param.time, price};
     crosshairVisible = true;
     const fmt = price<1?price.toFixed(6):price<100?price.toFixed(4):price.toFixed(2);
+    // Update lock button (fallback for mobile)
     const btn = document.getElementById('lockPointBtn');
     if(btn){
       if(drawStep===0) btn.textContent = `Lock Point 1  $${fmt}`;
       else             btn.textContent = `Lock Point 2  $${fmt}`;
     }
+    // Update instruction
+    if(drawStep===0) showInstruction(`Click to set Point 1  $${fmt}`);
+    else if(drawStep===1) showInstruction(`Click to set Point 2  $${fmt}`);
+    // Live preview line for point 2
     if(drawStep===1 && drawP1) updatePreview(crosshairPt);
+  });
+
+  // Desktop click = place point directly (no Lock button needed)
+  chart.subscribeClick(param=>{
+    if(!drawTool || !param.point || !param.time) return;
+    const price = candleSeries.coordinateToPrice(param.point.y);
+    if(price == null) return;
+    const pt = {time: param.time, price};
+
+    if(drawTool==='horiz'){
+      addHorizLine(price);
+      showInstruction('');
+      document.getElementById('lockPointBtn').style.display='none';
+      setDrawTool(null);
+      return;
+    }
+
+    if(drawTool==='trend'){
+      if(drawStep===0){
+        // Place point 1
+        drawP1 = pt;
+        drawStep = 1;
+        showInstruction('Click to set Point 2');
+        log(`Point 1 locked @ $${price.toFixed(4)}`,'ok');
+      } else if(drawStep===1){
+        // Place point 2 — draw line
+        removePreview();
+        addTrendLine(drawP1, pt);
+        showInstruction('Line drawn ✓');
+        setTimeout(()=>showInstruction(''),1500);
+        document.getElementById('lockPointBtn').style.display='none';
+        drawStep=0; drawP1=null;
+        setDrawTool(null);
+        log(`Point 2 locked @ $${price.toFixed(4)}`,'ok');
+      }
+    }
   });
 }
 
@@ -1803,13 +1840,14 @@ function lockPoint(){
       // Lock point 1
       drawP1 = crosshairPt;
       drawStep = 1;
-      // Hide crosshair so user knows point 1 is locked and needs to move for point 2
+      // Clear crosshair visually so user knows to move for point 2
       document.getElementById('drawCrosshair').style.display = 'none';
-      crosshairPt = null;
       crosshairVisible = false;
+      // Don't null crosshairPt — keep it so button stays enabled
+      // It will be overwritten when user drags for point 2
       showInstruction('Point 1 ✓  Drag to point 2 then tap Lock');
       const btn = document.getElementById('lockPointBtn');
-      btn.textContent = 'Lock Point 2  —  drag first';
+      btn.textContent = 'Lock Point 2  —  drag to position';
       btn.style.background = 'var(--accent)';
       log(`Point 1 locked @ $${drawP1.price.toFixed(4)}`,'ok');
     } else if(drawStep===1){
