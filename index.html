@@ -923,11 +923,19 @@ function initChart(){
     const touch = e.touches[0];
     const rect  = chartEl.getBoundingClientRect();
     const cx    = touch.clientX - rect.left;
+    // cy = visual crosshair position (above finger)
     const cy    = touch.clientY - rect.top - CROSSHAIR_OFFSET;
     if(cy < 0) return;
 
-    const price = candleSeries.coordinateToPrice(cy);
-    const time  = chart.timeScale().coordinateToTime(cx);
+    // Use canvas element for accurate coordinate conversion
+    const canvas = chartEl.querySelector('canvas');
+    const canvasRect = canvas ? canvas.getBoundingClientRect() : rect;
+    // Convert cy (relative to chartEl) to canvas-relative
+    const canvasCy = cy - (canvasRect.top - rect.top);
+    const canvasCx = cx - (canvasRect.left - rect.left);
+
+    const price = candleSeries.coordinateToPrice(canvasCy);
+    const time  = chart.timeScale().coordinateToTime(canvasCx);
     if(price == null) return;
 
     crosshairPt = {time: time||Math.floor(Date.now()/1000), price};
