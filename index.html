@@ -673,6 +673,7 @@ let touchStartX    = 0, touchStartY = 0;
 let crosshairPt    = null;   // current crosshair chart coords
 let crosshairPx    = null;   // current crosshair pixel coords
 let crosshairVisible = false;
+let isTouchDevice    = false; // set true on first touch — separates mobile/desktop drawing
 let awaitingPoint2   = false; // set after point1 locked, cleared after point2
 const CROSSHAIR_OFFSET = 60; // px above finger
 let selectedLineColor = '#ffffff';
@@ -958,21 +959,12 @@ function initChart(){
   // Show offset crosshair overlay on touchmove
   // passive:false so we can preventDefault and stop chart panning while drawing
   chartEl.addEventListener('touchstart', e=>{
+    isTouchDevice = true; // any touch = mobile mode, disables desktop click handlers
     if(!drawTool) return;
     // Disable chart scroll the moment a draw tool is active and finger touches
     e.preventDefault();
     setChartScroll(false);
   }, {passive:false});
-
-  // Track what the chart's crosshair reports so we use accurate coords
-  let lastChartCrosshairPt = null;
-  chart.subscribeCrosshairMove(param=>{
-    // Always store the chart's own crosshair reading (finger position, no offset)
-    if(param.time && param.point){
-      const p = candleSeries.coordinateToPrice(param.point.y);
-      if(p != null) lastChartCrosshairPt = {time: param.time, price: p};
-    }
-  });
 
   chartEl.addEventListener('touchmove', e=>{
     if(!drawTool) return;
@@ -1044,18 +1036,13 @@ function initChart(){
   // Also track via chart's own crosshair for desktop
   // ── DESKTOP: crosshair move + single click to place points ──
   chart.subscribeCrosshairMove(param=>{
+    if(isTouchDevice) return; // mobile uses touch handlers — don't overwrite crosshairPt
     if(!drawTool || !param.point || !param.time) return;
     const price = candleSeries.coordinateToPrice(param.point.y);
     if(price == null) return;
     crosshairPt = {time: param.time, price};
     crosshairVisible = true;
     const fmt = price<1?price.toFixed(6):price<100?price.toFixed(4):price.toFixed(2);
-    // Update lock button (fallback for mobile)
-    const btn = document.getElementById('lockPointBtn');
-    if(btn){
-      if(drawStep===0) btn.textContent = `Lock Point 1  $${fmt}`;
-      else             btn.textContent = `Lock Point 2  $${fmt}`;
-    }
     // Update instruction
     if(drawStep===0) showInstruction(`Click to set Point 1  $${fmt}`);
     else if(drawStep===1) showInstruction(`Click to set Point 2  $${fmt}`);
@@ -1065,6 +1052,7 @@ function initChart(){
 
   // Desktop click = place point directly (no Lock button needed)
   chart.subscribeClick(param=>{
+    if(isTouchDevice) return; // mobile uses Lock button, not chart clicks
     if(!drawTool || !param.point || !param.time) return;
     const price = candleSeries.coordinateToPrice(param.point.y);
     if(price == null) return;
