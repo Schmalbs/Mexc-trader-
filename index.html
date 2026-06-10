@@ -955,8 +955,15 @@ async function fetchOpenPositions(){
     if(!res.ok) return;
     const data = await res.json();
     if(!data.success) return;
+    // Any successful authenticated call = we're connected
+    const pill = document.getElementById('connPill');
+    if(pill && !botArmed){
+      pill.className='pill pill-green';
+      pill.textContent='● CONNECTED';
+    }
+    const prevCount = mexcPositions.length;
     mexcPositions = (data.data || []).filter(p => parseFloat(p.holdVol) > 0);
-    if(mexcPositions.length){
+    if(mexcPositions.length && mexcPositions.length !== prevCount){
       log(`Found ${mexcPositions.length} open position(s) on MEXC`,'ok');
     }
     renderTradesPanel();
