@@ -964,27 +964,50 @@ function initChart(){
     setChartScroll(false);
   }, {passive:false});
 
+  // Track what the chart's crosshair reports so we use accurate coords
+  let lastChartCrosshairPt = null;
+  chart.subscribeCrosshairMove(param=>{
+    // Always store the chart's own crosshair reading (finger position, no offset)
+    if(param.time && param.point){
+      const p = candleSeries.coordinateToPrice(param.point.y);
+      if(p != null) lastChartCrosshairPt = {time: param.time, price: p};
+    }
+  });
+
   chartEl.addEventListener('touchmove', e=>{
     if(!drawTool) return;
-    e.preventDefault(); // stop chart from panning in x
+    e.preventDefault();
     const touch = e.touches[0];
     const rect  = chartEl.getBoundingClientRect();
-    const cx    = touch.clientX - rect.left;
-    // cy = visual crosshair position (above finger)
-    const cy    = touch.clientY - rect.top - CROSSHAIR_OFFSET;
+
+    // Visual crosshair: offset ABOVE finger
+    const cx = touch.clientX - rect.left;
+    const cy = touch.clientY - rect.top - CROSSHAIR_OFFSET;
     if(cy < 0) return;
 
-    // coordinateToPrice takes coords relative to the chart pane
-    // The chart fills chartEl so cx/cy are correct directly
+    // Adjust cx for price scale width on the right
+    // so coordinateToTime maps correctly to the time axis
+    let priceScaleW = 60; // fallback estimate
+    try { priceScaleW = chart.priceScale('right').width(); } catch(e){}
+    const timeCx = Math.min(cx, rect.width - priceScaleW - 1);
+
     const price = candleSeries.coordinateToPrice(cy);
-    const time  = chart.timeScale().coordinateToTime(cx);
+    const time  = chart.timeScale().coordinateToTime(timeCx);
     if(price == null) return;
 
-    crosshairPt = {time: time||Math.floor(Date.now()/1000), price};
+    // Use nearest candle time if coordinateToTime returns null
+    let resolvedTime = time;
+    if(!resolvedTime && candles.length){
+      // Find nearest candle by x position ratio
+      const ratio = timeCx / (rect.width - priceScaleW);
+      const idx = Math.round(ratio * (candles.length-1));
+      resolvedTime = candles[Math.max(0,Math.min(candles.length-1,idx))].time;
+    }
+    crosshairPt = {time: resolvedTime || Math.floor(Date.now()/1000), price};
     crosshairPx = {x:cx, y:cy};
     crosshairVisible = true;
 
-    // Show visual overlay
+    // Show visual overlay at offset position
     const dc = document.getElementById('drawCrosshair');
     dc.style.display = 'block';
     dc.style.left = '0'; dc.style.top = '0';
@@ -995,7 +1018,7 @@ function initChart(){
     document.getElementById('dcDot').style.top  = cy+'px';
     const lbl = document.getElementById('dcLabel');
     lbl.style.top  = cy+'px';
-    lbl.style.left = cx+'px';
+    lbl.style.left = (cx + 10)+'px';
     const fmt = price<1?price.toFixed(6):price<100?price.toFixed(4):price.toFixed(2);
     lbl.textContent = '$'+fmt;
 
