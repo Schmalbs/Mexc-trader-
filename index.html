@@ -1090,6 +1090,13 @@ function initChart(){
   });
   new ResizeObserver(()=>chart.applyOptions({width:container.clientWidth,height:container.clientHeight})).observe(container);
   chart.applyOptions({width:container.clientWidth,height:container.clientHeight});
+
+  // Auto-load more candles when user scrolls to left edge
+  chart.timeScale().subscribeVisibleLogicalRangeChange(range=>{
+    if(!range) return;
+    // If left edge of visible range is near the start of our data — load more
+    if(range.from < 10) loadMoreCandles();
+  });
   // Desktop: click to place points when tool active
   // ── DRAWING: offset crosshair above finger + Lock button ─
   // Touch moves the chart crosshair naturally (no preventDefault)
@@ -1234,12 +1241,16 @@ function initChart(){
 }
 
 // ── CANDLE LOADING ─────────────────────────────
+// Max candles MEXC futures returns per request
+const CANDLE_LIMIT = 2000;
+let loadingMoreCandles = false;
+
 async function loadCandles(){
   currentSymbol = document.getElementById('symbolInput').value.trim().toUpperCase();
-  log(`Loading ${currentSymbol} ${currentTf} [futures]...`,'info');
+  log(`Loading ${currentSymbol} ${currentTf}...`,'info');
   try{
     const interval = TF_MAP[currentTf]||'Min15';
-    const res = await proxyFetch(api(`/api/v1/contract/kline/${currentSymbol}?interval=${interval}&limit=300`));
+    const res = await proxyFetch(api(`/api/v1/contract/kline/${currentSymbol}?interval=${interval}&limit=${CANDLE_LIMIT}`));
     if(!res.ok){
       const txt = await res.text().catch(()=>'');
       throw new Error(`HTTP ${res.status} — ${txt.slice(0,120)}`);
@@ -1261,6 +1272,35 @@ async function loadCandles(){
     log(`Loaded ${candles.length} candles for ${currentSymbol}`,'ok');
     startPricePoll();
   }catch(e){ log(`Load failed: ${e.message}`,'err'); }
+}
+
+// Load more historical candles when user scrolls to the left edge
+async function loadMoreCandles(){
+  if(loadingMoreCandles || !candles.length) return;
+  loadingMoreCandles = true;
+  try{
+    const interval = TF_MAP[currentTf]||'Min15';
+    const oldestTime = candles[0].time;
+    // end_time = oldest candle time (exclusive) — fetch 2000 before it
+    const res = await proxyFetch(api(`/api/v1/contract/kline/${currentSymbol}?interval=${interval}&limit=${CANDLE_LIMIT}&end=${oldestTime - 1}`));
+    if(!res.ok){ loadingMoreCandles=false; return; }
+    const d = await res.json();
+    if(!d.success || !d.data || !d.data.time || !d.data.time.length){ loadingMoreCandles=false; return; }
+    const { time, open, high, low, close } = d.data;
+    const older = time.map((t,i)=>({
+      time:  parseInt(t),
+      open:  parseFloat(open[i]),
+      high:  parseFloat(high[i]),
+      low:   parseFloat(low[i]),
+      close: parseFloat(close[i]),
+    })).filter(k => k.time < oldestTime);
+    if(older.length){
+      candles = [...older, ...candles];
+      candleSeries.setData(candles);
+      log(`Loaded ${older.length} more candles (total: ${candles.length})`,'info');
+    }
+  }catch(e){}
+  loadingMoreCandles = false;
 }
 
 let candleRefreshCounter = 0;
