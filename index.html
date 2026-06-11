@@ -271,8 +271,8 @@
       </div>
       <!-- DRAW TOOLS -->
       <div style="display:flex;gap:4px;">
-        <button class="btn btn-ghost" id="toolTrend" onclick="setDrawTool('trend')" title="Trend Line — long press & drag">↗ Trend</button>
-        <button class="btn btn-ghost" id="toolHoriz" onclick="setDrawTool('horiz')" title="Horizontal Line — long press to place">— Horiz</button>
+        <button class="btn btn-ghost" id="toolTrend" onclick="setDrawTool(drawTool==='trend'?null:'trend')" title="Trend Line">↗ Trend</button>
+        <button class="btn btn-ghost" id="toolHoriz" onclick="setDrawTool(drawTool==='horiz'?null:'horiz')" title="Horizontal Line">— Horiz</button>
         <button class="btn btn-ghost" onclick="clearAllLines()">✕ Clear</button>
         <button id="lockLinesBtn" onclick="toggleLinesLock()"
           style="padding:2px 8px;font-size:10px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:var(--font-mono);white-space:nowrap;">
@@ -1582,6 +1582,10 @@ document.getElementById('tfBtns').addEventListener('click',e=>{
 });
 
 // ── DRAWING ────────────────────────────────────
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape' && drawTool) setDrawTool(null);
+});
+
 function setDrawTool(tool){
   drawTool = tool;
   drawStep = 0; drawP1 = null;
