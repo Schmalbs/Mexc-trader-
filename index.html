@@ -881,14 +881,32 @@ function selectLineColor(el){
   document.querySelectorAll('.lc-swatch').forEach(s=>s.classList.remove('selected'));
   el.classList.add('selected');
   selectedLineColor = el.dataset.color;
-  // sync custom picker
   document.getElementById('customColorPicker').value = selectedLineColor;
+  applyColorToSelectedLine(selectedLineColor);
 }
 
 function selectCustomColor(input){
   selectedLineColor = input.value;
   document.querySelectorAll('.lc-swatch').forEach(s=>s.classList.remove('selected'));
-  // no swatch gets selected — the input itself is highlighted by the browser
+  applyColorToSelectedLine(selectedLineColor);
+}
+
+function applyColorToSelectedLine(color){
+  if(!selectedLine) return;
+  selectedLine.color = color;
+  selectedLine.series.applyOptions({color});
+  // update the badge label in the chart overlay
+  const lbl = document.getElementById('linelabel-'+selectedLine.id);
+  if(lbl){
+    lbl.style.background = color;
+    lbl.style.color = isLightColor(color) ? '#000' : '#fff';
+  }
+  // update the handle dots
+  ['h1','h2'].forEach(hid=>{
+    const el = document.getElementById('linehandle-'+hid);
+    if(el) el.style.background = color;
+  });
+  renderTlList();
 }
 let botArmed = false, watchInterval = null, lastPrice = null, openDay = null;
 let pnlOverlayOn = false;
@@ -1882,12 +1900,22 @@ function selectLine(tl){
   }
   selectedLine = tl;
   if(tl){ try{ tl.series.applyOptions({lineWidth:4}); }catch(e){} }
-  // Show delete button when a line is selected
+
   const delBtn = document.getElementById('deleteLineBtn');
   if(delBtn){
     delBtn.style.display = tl ? 'block' : 'none';
     if(tl) delBtn.textContent = `🗑 Delete #${tl.id}`;
   }
+
+  // Sync colour palette to show this line's current colour
+  if(tl){
+    selectedLineColor = tl.color || '#ffffff';
+    document.querySelectorAll('.lc-swatch').forEach(s=>{
+      s.classList.toggle('selected', s.dataset.color === selectedLineColor);
+    });
+    try{ document.getElementById('customColorPicker').value = selectedLineColor; }catch(e){}
+  }
+
   updateLineHandles();
 }
 
