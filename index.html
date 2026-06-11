@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
 <title>MEXC Trend Trader</title>
 <!-- lightweight-charts loaded at bottom of body -->
 <style>
@@ -14,10 +14,17 @@
     --font-ui:'IBM Plex Sans',sans-serif; --font-mono:'IBM Plex Mono',monospace;
   }
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{background:var(--bg);color:var(--text);font-family:var(--font-ui);height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+  html{overflow-x:hidden;width:100%;}
+  body{background:var(--bg);color:var(--text);font-family:var(--font-ui);
+    height:100vh;height:100dvh; /* dvh tracks Safari's collapsing bars — fixes landscape clipping */
+    width:100%;max-width:100vw;
+    display:flex;flex-direction:column;overflow:hidden;
+    padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
 
   /* HEADER */
-  header{display:flex;align-items:center;gap:8px;padding:0 10px;height:36px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;}
+  header{display:flex;align-items:center;gap:8px;padding:0 10px;height:36px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;min-width:0;max-width:100%;overflow:hidden;}
   .logo{font-family:var(--font-mono);font-weight:600;font-size:12px;color:var(--accent);letter-spacing:1px;white-space:nowrap;}
   .logo span{color:var(--muted);font-weight:400;}
   .header-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;}
@@ -54,14 +61,14 @@
   .pill-grey{background:rgba(107,116,148,.15);color:var(--muted);border:1px solid rgba(107,116,148,.3);}
 
   /* LAYOUT */
-  .main{display:flex;flex:1;overflow:hidden;}
+  .main{display:flex;flex:1;overflow:hidden;min-width:0;max-width:100%;}
 
   /* CHART */
-  .chart-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative;}
+  .chart-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative;min-width:0;}
   .chart-wrap.fullscreen{position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;z-index:1000!important;background:var(--bg);}
   .chart-wrap.fullscreen #chart{flex:1;}
   #fullscreenBtn{margin-left:auto;}
-  .chart-toolbar{display:flex;align-items:center;gap:5px;padding:3px 8px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;}
+  .chart-toolbar{display:flex;align-items:center;gap:5px;padding:3px 8px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;min-width:0;max-width:100%;overflow:hidden;}
   .tf-btns{display:flex;gap:4px;}
   .tf-btn{padding:2px 7px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:var(--font-mono);font-size:10px;cursor:pointer;transition:all .15s;}
   .tf-btn:hover{border-color:var(--accent);color:var(--accent);}
