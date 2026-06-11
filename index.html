@@ -1674,34 +1674,29 @@ function timeToX(t){
 }
 
 function buildLinePoints(p1,p2){
-  // The line spans exactly p1 → p2. Drag an endpoint into the future to extend it.
+  // The line spans p1 → p2. Drag an endpoint into the future to extend it.
+  // CRITICAL: every data point sits exactly on the candle-time grid.
+  // Off-grid times would insert extra slots into the chart's time scale,
+  // corrupting coordinates for every line drawn afterwards.
   let a=p1, b=p2;
   if(b.time < a.time){ a=p2; b=p1; }
   const step = TF_SECONDS[currentTf]||900;
+  const t0 = candles.length ? candles[0].time : Math.round(a.time/step)*step;
   const slope=(b.price-a.price)/((b.time-a.time)||step);
+
+  // Snap span to the grid (anchors stay fractional for the slope math,
+  // so the line still passes through the exact prices the user placed)
+  const gridStart = t0 + Math.round((a.time - t0)/step)*step;
+  let   gridEnd   = t0 + Math.round((b.time - t0)/step)*step;
+  const lastT = candles.length ? candles[candles.length-1].time : gridStart;
+  gridEnd = Math.min(gridEnd, lastT + 500*step); // future cap
+  if(gridEnd <= gridStart) gridEnd = gridStart + step;
+
   const pts=[];
-  const startT = a.time, endT = b.time;
-  // grid points at candle times within the span
-  for(const c of candles){
-    if(c.time >= startT && c.time <= endT)
-      pts.push({time:c.time, value:a.price+slope*(c.time-a.time)});
-  }
-  // synthetic grid points beyond the last candle (future) up to endT
-  // HARD CAP: max 500 bars into the future, prevents runaway extension
-  const lastT = candles.length ? candles[candles.length-1].time : startT;
-  const maxFutureT = lastT + 500*step;
-  const cappedEndT = Math.min(endT, maxFutureT);
-  for(let t=lastT+step; t<=cappedEndT; t+=step){
+  for(let t=gridStart; t<=gridEnd; t+=step){
     pts.push({time:t, value:a.price+slope*(t-a.time)});
   }
-  // exact endpoints (snapped to grid second) so the line starts/ends precisely
-  const gridA = Math.round(a.time), gridB = Math.round(b.time);
-  if(!pts.length || pts[0].time > gridA) pts.unshift({time:gridA, value:a.price});
-  if(pts[pts.length-1].time < gridB) pts.push({time:gridB, value:b.price});
-  // de-dup ascending
-  const out=[]; let prev=-Infinity;
-  for(const p of pts){ if(p.time>prev){ out.push(p); prev=p.time; } }
-  return out.length>=2?out:[{time:gridA,value:a.price},{time:gridA+step,value:b.price}];
+  return pts;
 }
 function priceOnLineAt(tl,t){
   if(tl.isHoriz) return tl.horizPrice;
