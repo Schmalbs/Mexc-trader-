@@ -441,15 +441,15 @@
           </div>
         </div>
         <div class="qty-mode-toggle">
-          <button class="qmt-btn active" id="manualQtyModeBase"  onclick="setQtyMode('manual','base')">Base qty</button>
-          <button class="qmt-btn"        id="manualQtyModeUsdt"  onclick="setQtyMode('manual','usdt')">USDT amount</button>
+          <button class="qmt-btn"        id="manualQtyModeBase"  onclick="setQtyMode('manual','base')">Base qty</button>
+          <button class="qmt-btn active" id="manualQtyModeUsdt"  onclick="setQtyMode('manual','usdt')">USDT amount</button>
           <button class="qmt-btn"        id="manualQtyModePct"   onclick="setQtyMode('manual','pct')">% of account</button>
         </div>
         <div class="inline-row">
           <div class="form-row">
             <div class="form-label" id="manualQtyLabel">Qty (base)</div>
-            <input type="number" id="manualQty"     value="0.001" step="0.0001" min="0"/>
-            <input type="number" id="manualQtyUsdt" value="100"   step="1"      min="0" placeholder="USDT" style="display:none"/>
+            <input type="number" id="manualQty"     value="0.001" step="0.0001" min="0" style="display:none"/>
+            <input type="number" id="manualQtyUsdt" value="100"   step="1"      min="0" placeholder="USDT"/>
             <input type="number" id="manualQtyPct"  value="10"    step="1"      min="1" max="100" placeholder="% acct" style="display:none"/>
           </div>
           <div class="form-row">
@@ -595,12 +595,12 @@
           <div class="form-row">
             <div class="form-label" id="botQtyLabel">Qty (base)</div>
             <div class="qty-mode-toggle" style="margin-bottom:3px;">
-              <button class="qmt-btn active" id="botQtyModeBase" onclick="setQtyMode('bot','base')">Base</button>
-              <button class="qmt-btn"        id="botQtyModeUsdt" onclick="setQtyMode('bot','usdt')">USDT</button>
+              <button class="qmt-btn"        id="botQtyModeBase" onclick="setQtyMode('bot','base')">Base</button>
+              <button class="qmt-btn active" id="botQtyModeUsdt" onclick="setQtyMode('bot','usdt')">USDT</button>
               <button class="qmt-btn"        id="botQtyModePct"  onclick="setQtyMode('bot','pct')">% acct</button>
             </div>
-            <input type="number" id="qty"     value="0.001" step="0.0001" min="0"/>
-            <input type="number" id="botQtyUsdt" value="100"  step="1"    min="0" placeholder="USDT" style="display:none"/>
+            <input type="number" id="qty"     value="0.001" step="0.0001" min="0" style="display:none"/>
+            <input type="number" id="botQtyUsdt" value="100"  step="1"    min="0" placeholder="USDT"/>
             <input type="number" id="botQtyPct"  value="10"   step="1"    min="1" max="100" placeholder="% acct" style="display:none"/>
           </div>
         </div>
@@ -722,7 +722,10 @@
 
     <!-- LOG -->
     <div class="panel-section" style="flex:1">
-      <div class="panel-title">Activity Log</div>
+      <div class="panel-title" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>Activity Log</span>
+        <button onclick="copyFullLog()" style="background:none;border:1px solid var(--border);color:var(--muted);font-family:var(--font-mono);font-size:9px;padding:2px 8px;border-radius:3px;cursor:pointer;">📋 Copy log</button>
+      </div>
       <div class="log-box" id="logBox"></div>
     </div>
   </div>
@@ -751,7 +754,7 @@ let selectedLineColor = '#ffffff';
 
 // exitTypeState tracks 'pct' or 'price' for each of the 4 exit inputs
 const exitTypeState = { manualTp:'pct', manualSl:'pct', botTp:'pct', botSl:'pct' };
-const qtyModeState = { manual:'base', bot:'base' };
+const qtyModeState = { manual:'usdt', bot:'usdt' };
 let pnlDisplayMode  = '$';   // '$' or '%'
 let tradePanelMode  = '%';   // '%' or '$' — trades panel P&L display
 let headerPnlMode  = '%';   // header badge toggles between '%' and '$'
@@ -1543,8 +1546,10 @@ function startPricePoll(){
       candleRefreshCounter++;
       if(candleRefreshCounter % 5 === 0) refreshLatestCandles();
 
-      if(botArmed) checkTriggers();
-      if(activeTrade){ checkPriceExits(p); if(pnlOverlayOn) updatePnlOverlay(p); renderTradesPanel(); }
+      // NOTE: all trading logic runs on the SERVER. The browser never
+      // fires triggers or exits — it only displays state. The legacy
+      // client-side engine caused phantom trades with default settings.
+      if(activeTrade){ if(pnlOverlayOn) updatePnlOverlay(p); renderTradesPanel(); }
     }catch{}
   },5000);
 }
@@ -2202,6 +2207,11 @@ async function armBot(){
     selectedLineId: document.getElementById('triggerLineId').value,
     lines: trendLines.map(t=>({id:t.id, p1:t.p1, p2:t.p2, isHoriz:!!t.isHoriz, horizPrice:t.horizPrice})),
     qty: resolveQty('bot', lastPrice||1),
+    // USDT sizing: server converts to contracts AT TRIGGER TIME using the
+    // actual entry price — more accurate than converting at arm time
+    qtyUsdt: (qtyModeState.bot==='usdt') ? (parseFloat(document.getElementById('botQtyUsdt').value)||100)
+           : (qtyModeState.bot==='pct')  ? (getStartBalance() * (parseFloat(document.getElementById('botQtyPct').value)||10)/100)
+           : null,
     leverage: parseInt(document.getElementById('botLeverage').value)||1,
     marginType: document.getElementById('botMarginType').value,
     orderType: document.getElementById('orderType').value,
@@ -2218,6 +2228,30 @@ async function armBot(){
       tf: TF_MAP[document.getElementById('slTf').value]||'Min15',
     },
   };
+
+  // ── CONFIRMATION — full summary before any bot goes live ──
+  const sideLabel = cfg.dir==='above' ? 'BUY (close above)' : 'SELL (close below)';
+  const srcLabel  = cfg.triggerSource==='price'
+    ? `manual price $${cfg.manualPrice}`
+    : (cfg.selectedLineId==='all' ? `ALL armed lines (${cfg.lines.length})` : `line #${cfg.selectedLineId}`);
+  const tfLabel   = document.getElementById('triggerTf').value;
+  const notional  = cfg.qtyUsdt ? cfg.qtyUsdt.toFixed(2) : (cfg.qty * 0.0001 * (lastPrice||0)).toFixed(2);
+  const alreadyArmed = serverBots.filter(b=>!b.manualOnly).length;
+  const tpLabel = cfg.tp.type==='price' ? `$${cfg.tp.value}` : `${cfg.tp.value}%`;
+  const slLabel = cfg.sl.type==='price' ? `$${cfg.sl.value}` : `${cfg.sl.value}%`;
+
+  const summary =
+`ARM THIS BOT?
+
+Trigger: ${sideLabel}
+Source: ${srcLabel}
+Candle TF: ${tfLabel}
+Size: ${cfg.qtyUsdt ? '$'+notional+' USDT (converted at entry)' : cfg.qty+' contracts (≈$'+notional+')'} at ${cfg.leverage}× ${cfg.marginType}
+TP: ${tpLabel} | SL: ${slLabel}
+
+${alreadyArmed > 0 ? `⚠️ You already have ${alreadyArmed} bot${alreadyArmed>1?'s':''} armed — this ADDS another (total: ${alreadyArmed+1}).` : 'This will be your only armed bot.'}`;
+
+  if(!confirm(summary)) return;
 
   try{
     const r = await fetch(PROXY+'/bot/arm',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(cfg)});
@@ -2424,8 +2458,7 @@ function registerTrade(trade){
   document.getElementById('atcTp').textContent=`+${(Math.abs(trade.tpPrice-trade.entryPrice)/trade.entryPrice*100).toFixed(2)}% [${trade.tpMode}]`;
   document.getElementById('atcSl').textContent=`-${(Math.abs(trade.slPrice-trade.entryPrice)/trade.entryPrice*100).toFixed(2)}% [${trade.slMode}]`;
   if(pnlOverlayOn) document.getElementById('tradeMonitor').classList.add('visible');
-  if(candleExitInterval) clearInterval(candleExitInterval);
-  candleExitInterval=setInterval(checkCandleExits,5000);
+  // exits are server-managed — no client-side exit polling
   updateAccountBadge(lastPrice);
   renderTradesPanel();
 }
@@ -2711,13 +2744,57 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
+const logHistory = []; // full copyable history
+
 function log(msg,type=''){
+  const stamp = new Date().toISOString();
+  logHistory.push(`[${stamp}] [${type||'info'}] ${msg}`);
+  if(logHistory.length > 1000) logHistory.shift();
   const box=document.getElementById('logBox');
   const el=document.createElement('div');
   el.className=`log-entry ${type}`;
   el.textContent=`[${new Date().toLocaleTimeString()}] ${msg}`;
   box.appendChild(el);
+  // Trim DOM to last 200 entries to keep it light
+  while(box.children.length > 200) box.removeChild(box.firstChild);
   box.scrollTop=box.scrollHeight;
+}
+
+async function copyFullLog(){
+  let serverLog = '(server log unavailable)';
+  try{
+    const r = await fetch(PROXY+'/logs',{headers:authHeaders()});
+    if(r.ok) serverLog = await r.text();
+  }catch(e){ serverLog = '(server unreachable: '+e.message+')'; }
+
+  const text =
+`═══ MEXC TREND TRADER DIAGNOSTIC LOG ═══
+Generated: ${new Date().toISOString()}
+App URL: ${location.href}
+Symbol: ${currentSymbol} | TF: ${currentTf}
+Armed bots: ${JSON.stringify(serverBots)}
+Active trade: ${JSON.stringify(activeTrade)}
+
+═══ SERVER LOG (last 500) ═══
+${serverLog}
+
+═══ APP LOG (this session) ═══
+${logHistory.join('\n')}`;
+
+  try{
+    await navigator.clipboard.writeText(text);
+    log('📋 Full diagnostic log copied to clipboard ✓','ok');
+  }catch(e){
+    // iOS fallback: selectable textarea
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText='position:fixed;inset:10%;width:80%;height:80%;z-index:99999;background:#0d0f14;color:#e8eaf0;border:1px solid #f5a623;border-radius:8px;padding:10px;font-size:11px;';
+    document.body.appendChild(ta);
+    ta.select();
+    try{ document.execCommand('copy'); log('📋 Log copied ✓ (tap outside to close)','ok'); }
+    catch(e2){ log('Select all text in the box and copy manually','warn'); }
+    ta.addEventListener('blur', ()=>ta.remove());
+  }
 }
 
 // ── GLOBAL DRAWING HELPERS ────────────────────
