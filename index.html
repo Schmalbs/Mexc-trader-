@@ -92,6 +92,12 @@
 
   /* TP/SL MODE TOGGLE */
   .exit-type-toggle{display:flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:4px;}
+  /* Multi-TP level rows */
+  .tp-level-row{display:flex;align-items:center;gap:4px;margin-bottom:5px;background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:5px 7px;}
+  .tp-level-row input{flex:1;min-width:0;}
+  .tp-level-row .tp-lbl{font-family:var(--font-mono);font-size:9px;color:var(--muted);white-space:nowrap;}
+  .tp-del-btn{background:none;border:none;color:var(--danger);font-size:12px;cursor:pointer;padding:0 2px;flex-shrink:0;}
+
   .ett-btn{flex:1;padding:3px 0;background:transparent;border:none;color:var(--muted);font-family:var(--font-mono);font-size:10px;cursor:pointer;transition:all .15s;text-align:center;}
   .ett-btn.active-pct{background:rgba(61,127,255,.25);color:var(--accent2);font-weight:600;}
   .ett-btn.active-price{background:rgba(0,200,150,.15);color:var(--accent);font-weight:600;}
@@ -133,7 +139,7 @@
   .tm-close-btn:hover{background:rgba(245,166,35,.25);}
 
   /* SIDE PANEL */
-  .side-panel{width:220px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;}
+  .side-panel{width:440px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;}
   .panel-section{padding:9px 10px;border-bottom:1px solid var(--border);}
   .panel-title{font-family:var(--font-mono);font-size:9px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:6px;}
 
@@ -629,26 +635,27 @@
             </select>
           </div>
         </div>
-        <div class="sub-label">Take Profit</div>
-        <div class="exit-type-toggle">
-          <button class="ett-btn active-pct" id="botTpTypePct" onclick="setExitType('botTp','pct')">% from entry</button>
-          <button class="ett-btn"            id="botTpTypePrice" onclick="setExitType('botTp','price')">Exact price</button>
+        <div class="sub-label" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Take Profit</span>
+          <button onclick="addTpLevel()" style="background:none;border:1px solid var(--accent);color:var(--accent);border-radius:3px;font-size:9px;padding:2px 7px;cursor:pointer;font-family:var(--font-mono);">+ Add TP</button>
         </div>
-        <div class="inline-row">
-          <div class="form-row">
-            <div class="form-label" id="botTpValLabel">TP %</div>
-            <input type="number" id="tpPct" value="2" step="0.1" min="0"/>
-            <input type="number" id="botTpPrice" placeholder="e.g. 45000" step="0.01" min="0" style="display:none"/>
-          </div>
-          <div class="form-row">
-            <div class="form-label">Trigger</div>
-            <select id="tpMode"><option value="price">Price hit</option><option value="candle">Candle close</option></select>
-          </div>
+        <div id="tpLevelsContainer"></div>
+        <div class="form-row" style="margin-top:4px;">
+          <div class="form-label">Trigger</div>
+          <select id="tpMode"><option value="price">Price hit</option><option value="candle">Candle close</option></select>
         </div>
         <div class="form-row" id="tpCandleRow" style="display:none">
           <div class="form-label">TP Candle TF</div>
           <select id="tpTf"><option value="1m">1m</option><option value="5m">5m</option><option value="15m" selected>15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1d</option></select>
         </div>
+        <!-- Break-even on any TP hit -->
+        <label style="display:flex;align-items:center;gap:6px;margin:6px 0 2px;font-family:var(--font-mono);font-size:10px;color:var(--muted);cursor:pointer;">
+          <input type="checkbox" id="breakEvenOnTp" style="accent-color:var(--accent);cursor:pointer;"/>
+          Move SL to break-even when any TP is hit
+        </label>
+        <!-- Hidden compat inputs keep existing resolveExitPrice calls working -->
+        <input type="hidden" id="tpPct" value="2"/>
+        <input type="hidden" id="botTpPrice" value=""/>
         <div class="sub-label">Stop Loss</div>
         <div class="exit-type-toggle">
           <button class="ett-btn active-pct" id="botSlTypePct" onclick="setExitType('botSl','pct')">% from entry</button>
@@ -1011,6 +1018,42 @@ async function pollAiStatus(){
   }catch(e){}
 }
 setInterval(pollAiStatus, 12000);
+
+// ── MULTI-TP LEVELS ──────────────────────────
+let tpLevels = [{pct:2, size:100}]; // [{pct, size}] size=% of remaining position
+
+function renderTpLevels(){
+  const box = document.getElementById('tpLevelsContainer');
+  if(!box) return;
+  box.innerHTML = tpLevels.map((tp,i)=>`
+    <div class="tp-level-row" id="tplvl-${i}">
+      <span class="tp-lbl">TP${i+1}</span>
+      <input type="number" value="${tp.pct}" min="0.1" step="0.1" placeholder="%"
+        style="width:55px;"
+        oninput="tpLevels[${i}].pct=parseFloat(this.value)||0"
+        title="% from entry"/>
+      <span class="tp-lbl">% |</span>
+      <input type="number" value="${tp.size}" min="1" max="100" step="1" placeholder="size%"
+        style="width:50px;"
+        oninput="tpLevels[${i}].size=parseFloat(this.value)||100"
+        title="% of remaining position to close"/>
+      <span class="tp-lbl">% pos</span>
+      ${tpLevels.length>1?`<button class="tp-del-btn" onclick="removeTpLevel(${i})">✕</button>`:''}
+    </div>`).join('');
+}
+
+function addTpLevel(){
+  tpLevels.push({pct: (tpLevels[tpLevels.length-1]?.pct||2)*2, size:50});
+  renderTpLevels();
+}
+
+function removeTpLevel(i){
+  tpLevels.splice(i,1);
+  renderTpLevels();
+}
+
+// init
+document.addEventListener('DOMContentLoaded', ()=>{ renderTpLevels(); });
 
 // ── SERVER BOT STATUS POLLING ──
 let lastServerLogCount = 0;
@@ -2217,9 +2260,11 @@ async function armBot(){
     orderType: document.getElementById('orderType').value,
     tp: {
       mode: document.getElementById('tpMode').value,
-      type: exitTypeState.botTp,
-      value: exitTypeState.botTp==='price' ? parseFloat(document.getElementById('botTpPrice').value) : parseFloat(document.getElementById('tpPct').value),
+      type: 'pct',
+      value: tpLevels[0]?.pct || 2, // compat for single-TP checks
       tf: TF_MAP[document.getElementById('tpTf').value]||'Min15',
+      levels: tpLevels.map(t=>({pct:t.pct, size:t.size})),
+      breakEvenOnHit: document.getElementById('breakEvenOnTp').checked,
     },
     sl: {
       mode: document.getElementById('slMode').value,
