@@ -302,6 +302,15 @@
     <div id="chart"></div>
     <div class="mode-indicator" id="modeIndicator">Long press on chart to start</div>
     <div id="drawInstruction"></div>
+    <!-- Delete selected line button -->
+    <button id="deleteLineBtn" onclick="deleteSelectedLine()"
+      style="display:none;position:absolute;bottom:8px;left:8px;
+      background:rgba(255,77,106,.9);color:#fff;border:none;border-radius:6px;padding:5px 10px;
+      font-family:var(--font-mono);font-size:10px;font-weight:700;cursor:pointer;
+      z-index:30;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);
+      -webkit-tap-highlight-color:transparent;backdrop-filter:blur(4px);">
+      🗑 Delete line
+    </button>
     <!-- Lock button for drawing points -->
     <button id="lockPointBtn" onclick="lockPoint()"
       style="display:none;position:absolute;bottom:8px;right:8px;
@@ -1221,7 +1230,7 @@ setInterval(()=>{ if(authToken) fetchOpenPositions(); }, 15000);
 function initChart(){
   const container = document.getElementById('chart');
   chart = LightweightCharts.createChart(container,{
-    layout:{background:{color:'#0d0f14'},textColor:'#6b7494'},
+    layout:{background:{color:'#0d0f14'},textColor:'#6b7494',fontSize:10},
     grid:{vertLines:{color:'#1a1e28'},horzLines:{color:'#1a1e28'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
     rightPriceScale:{borderColor:'#252a38'},
@@ -1818,7 +1827,19 @@ function selectLine(tl){
   }
   selectedLine = tl;
   if(tl){ try{ tl.series.applyOptions({lineWidth:4}); }catch(e){} }
+  // Show delete button when a line is selected
+  const delBtn = document.getElementById('deleteLineBtn');
+  if(delBtn){
+    delBtn.style.display = tl ? 'block' : 'none';
+    if(tl) delBtn.textContent = `🗑 Delete #${tl.id}`;
+  }
   updateLineHandles();
+}
+
+function deleteSelectedLine(){
+  if(!selectedLine) return;
+  if(!confirm(`Delete line #${selectedLine.id}?`)) return;
+  removeTrendLine(selectedLine.id);
 }
 
 function updateLineHandles(){
