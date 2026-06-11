@@ -1599,19 +1599,13 @@ function startPricePoll(){
   if(watchInterval) clearInterval(watchInterval);
   watchInterval = setInterval(async()=>{
     try{
-      const res = await proxyFetch(api(`/api/v1/contract/ticker?symbol=${currentSymbol}`));
-      if(!res.ok){ log(`Price poll HTTP ${res.status}`,'warn'); return; }
+      // Route through server — it caches 1.5s so MEXC never gets hit more than once/1.5s
+      const res = await fetch(PROXY+`/ticker?symbol=${currentSymbol}`);
+      if(!res.ok) return;
       const d = await res.json();
-      if(!d.success){
-        // Rate-limited or transient — skip quietly (logged at most once a minute)
-        if(!window._lastTickErr || Date.now()-window._lastTickErr > 60000){
-          window._lastTickErr = Date.now();
-          log(`Ticker error: ${d.message||'unknown'} (will keep retrying quietly)`,'warn');
-        }
-        return;
-      }
+      if(!d || !d.success) return;
       const ticker = Array.isArray(d.data) ? d.data[0] : d.data;
-      if(!ticker){ log('No ticker data returned','warn'); return; }
+      if(!ticker) return;
       const p = parseFloat(ticker.lastPrice);
       updatePrice(p);
       updateAccountBadge(p);
@@ -1640,7 +1634,7 @@ function startPricePoll(){
 async function refreshLatestCandles(){
   try{
     const interval = TF_MAP[currentTf]||'Min15';
-    const res = await proxyFetch(api(`/api/v1/contract/kline/${currentSymbol}?interval=${interval}&limit=3`));
+    const res = await proxyFetch(api(`/api/v1/contract/kline/${currentSymbol}?interval=${interval}&limit=3`),{},true);
     const d = await res.json();
     if(!d.success || !d.data || !d.data.time) return;
     const {time,open,high,low,close} = d.data;
