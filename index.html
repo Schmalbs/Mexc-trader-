@@ -2361,8 +2361,15 @@ async function armBot(){
   const tfLabel   = document.getElementById('triggerTf').value;
   const notional  = cfg.qtyUsdt ? cfg.qtyUsdt.toFixed(2) : (cfg.qty * 0.0001 * (lastPrice||0)).toFixed(2);
   const alreadyArmed = serverBots.filter(b=>!b.manualOnly).length;
-  const tpLabel = cfg.tp.type==='price' ? `$${cfg.tp.value}` : `${cfg.tp.value}%`;
-  const slLabel = cfg.sl.type==='price' ? `$${cfg.sl.value}` : `${cfg.sl.value}%`;
+  // Build TP summary from actual tpLevels
+  const tpLabel = tpLevels.map((t,i)=>
+    t.type==='price'
+      ? `TP${i+1}: $${t.price} (${t.size}%pos)`
+      : `TP${i+1}: +${t.pct}% (${t.size}%pos)`
+  ).join(' | ');
+  const slLabel = exitTypeState.botSl==='price'
+    ? `$${document.getElementById('botSlPrice').value||'?'}`
+    : `${document.getElementById('slPct').value||'?'}%`;
 
   const summary =
 `ARM THIS BOT?
@@ -2371,7 +2378,8 @@ Trigger: ${sideLabel}
 Source: ${srcLabel}
 Candle TF: ${tfLabel}
 Size: ${cfg.qtyUsdt ? '$'+notional+' USDT (converted at entry)' : cfg.qty+' contracts (≈$'+notional+')'} at ${cfg.leverage}× ${cfg.marginType}
-TP: ${tpLabel} | SL: ${slLabel}
+TP: ${tpLabel}
+SL: ${slLabel}${cfg.tp.breakEvenOnHit?' + break-even on TP hit ✓':''}
 
 ${alreadyArmed > 0 ? `⚠️ You already have ${alreadyArmed} bot${alreadyArmed>1?'s':''} armed — this ADDS another (total: ${alreadyArmed+1}).` : 'This will be your only armed bot.'}`;
 
