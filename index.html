@@ -378,6 +378,8 @@
       <div class="panel-title">Market</div>
       <div class="price-big" id="priceDisplay">--</div>
       <div class="price-change" id="priceChange">--</div>
+      <div id="dailyChangeLabel" style="font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-top:1px;">since daily open</div>
+      <div id="candleTimer" style="font-family:var(--font-mono);font-size:10px;color:var(--accent2);margin-top:4px;">⏱ --:--</div>
     </div>
 
     <!-- ACCOUNT SETUP -->
@@ -1038,7 +1040,7 @@ async function pollAiStatus(){
 setInterval(pollAiStatus, 12000);
 
 // ── MULTI-TP LEVELS ──────────────────────────
-let tpLevels = [{pct:2, size:100}]; // [{pct, size}] size=% of remaining position
+let tpLevels = [{type:'pct', pct:2, price:null, size:100}];
 
 function renderTpLevels(){
   const box = document.getElementById('tpLevelsContainer');
@@ -1046,22 +1048,41 @@ function renderTpLevels(){
   box.innerHTML = tpLevels.map((tp,i)=>`
     <div class="tp-level-row" id="tplvl-${i}">
       <span class="tp-lbl">TP${i+1}</span>
-      <input type="number" value="${tp.pct}" min="0.1" step="0.1" placeholder="%"
-        style="width:55px;"
-        oninput="tpLevels[${i}].pct=parseFloat(this.value)||0"
-        title="% from entry"/>
-      <span class="tp-lbl">% |</span>
-      <input type="number" value="${tp.size}" min="1" max="100" step="1" placeholder="size%"
-        style="width:50px;"
+      <button onclick="toggleTpType(${i})"
+        style="background:${tp.type==='price'?'rgba(61,127,255,.2)':'rgba(0,200,150,.15)'};
+               border:1px solid ${tp.type==='price'?'var(--accent2)':'var(--accent)'};
+               color:${tp.type==='price'?'var(--accent2)':'var(--accent)'};
+               border-radius:3px;font-size:9px;padding:2px 5px;cursor:pointer;font-family:var(--font-mono);white-space:nowrap;">
+        ${tp.type==='pct'?'%':'$'}
+      </button>
+      ${tp.type==='pct'
+        ? `<input type="number" value="${tp.pct||2}" min="0.01" step="0.1" placeholder="%"
+             style="width:55px;"
+             oninput="tpLevels[${i}].pct=parseFloat(this.value)||0"
+             title="% gain on full trade value (e.g. 200% on a $500 trade = $1000 profit)"/>`
+        : `<input type="number" value="${tp.price||''}" min="0" step="0.01" placeholder="Price"
+             style="width:72px;"
+             oninput="tpLevels[${i}].price=parseFloat(this.value)||0"
+             title="Exact price to take profit"/>`
+      }
+      <span class="tp-lbl">${tp.type==='pct'?'% |':'$|'}</span>
+      <input type="number" value="${tp.size||100}" min="1" max="100" step="1" placeholder="size%"
+        style="width:48px;"
         oninput="tpLevels[${i}].size=parseFloat(this.value)||100"
-        title="% of remaining position to close"/>
-      <span class="tp-lbl">% pos</span>
+        title="% of remaining position to close at this level"/>
+      <span class="tp-lbl">%pos</span>
       ${tpLevels.length>1?`<button class="tp-del-btn" onclick="removeTpLevel(${i})">✕</button>`:''}
     </div>`).join('');
 }
 
+function toggleTpType(i){
+  tpLevels[i].type = tpLevels[i].type==='pct' ? 'price' : 'pct';
+  renderTpLevels();
+}
+
 function addTpLevel(){
-  tpLevels.push({pct: (tpLevels[tpLevels.length-1]?.pct||2)*2, size:50});
+  const last = tpLevels[tpLevels.length-1];
+  tpLevels.push({type:'pct', pct: (last?.pct||2)*2, price:null, size:50});
   renderTpLevels();
 }
 
@@ -1530,6 +1551,7 @@ async function loadCandles(attempt){
     updatePrice(candles[candles.length-1].close);
     openDay = candles[0].open;
     log(`Loaded ${candles.length} candles for ${currentSymbol}`,'ok');
+    fetchDailyOpen();
     startPricePoll();
   }catch(e){
     if(attempt < 4){
@@ -1605,14 +1627,14 @@ function startPricePoll(){
 
       // ── Every ~5th tick (15s): fetch latest candles to catch new candle opens ──
       candleRefreshCounter++;
-      if(candleRefreshCounter % 5 === 0) refreshLatestCandles();
+      if(candleRefreshCounter % 3 === 0) refreshLatestCandles(); // every ~6s
 
       // NOTE: all trading logic runs on the SERVER. The browser never
       // fires triggers or exits — it only displays state. The legacy
       // client-side engine caused phantom trades with default settings.
       if(activeTrade){ if(pnlOverlayOn) updatePnlOverlay(p); renderTradesPanel(); }
     }catch{}
-  },5000);
+  },2000);  // price ticks every 2s
 }
 
 async function refreshLatestCandles(){
@@ -1643,17 +1665,52 @@ async function refreshLatestCandles(){
   }catch(e){}
 }
 
+let dailyOpen = null; // open price of the current 1D candle
+let lastCandleCloseTime = null; // unix ts of last candle close for the timer
+
 function updatePrice(p){
   lastPrice = p;
   const fmt = p<1?p.toFixed(6):p<100?p.toFixed(4):p.toFixed(2);
   document.getElementById('priceDisplay').textContent = fmt;
-  if(openDay){
-    const chg = ((p-openDay)/openDay*100).toFixed(2);
+  const base = dailyOpen || openDay;
+  if(base){
+    const chg = ((p-base)/base*100).toFixed(2);
     const el = document.getElementById('priceChange');
     el.textContent = (chg>=0?'▲ +':'▼ ')+chg+'%';
     el.style.color = chg>=0?'var(--accent)':'var(--danger)';
   }
 }
+
+async function fetchDailyOpen(){
+  try{
+    const res = await proxyFetch(api(`/api/v1/contract/kline/${currentSymbol}?interval=Day1&limit=2`));
+    if(!res.ok) return;
+    const d = await res.json();
+    if(d.success && d.data && d.data.open && d.data.open.length){
+      const lastI = d.data.open.length-1;
+      dailyOpen = parseFloat(d.data.open[lastI]);
+    }
+  }catch(e){}
+}
+
+function updateCandleTimer(){
+  const el = document.getElementById('candleTimer');
+  if(!el) return;
+  const step = TF_SECONDS[currentTf]||900;
+  // Find when the last candle opened
+  const lastCandle = candles[candles.length-1];
+  if(!lastCandle){ el.textContent='⏱ --:--'; return; }
+  const nextClose = (lastCandle.time + step) * 1000;
+  const diff = Math.max(0, nextClose - Date.now());
+  const m = Math.floor(diff/60000);
+  const s = Math.floor((diff%60000)/1000);
+  const h = Math.floor(m/60);
+  const label = h>0 ? `${h}h ${m%60}m` : `${m}m ${String(s).padStart(2,'0')}s`;
+  el.textContent = `⏱ ${label} to close`;
+  el.style.color = diff < 60000 ? 'var(--warn)' : 'var(--accent2)';
+}
+
+setInterval(updateCandleTimer, 1000);
 
 document.getElementById('tfBtns').addEventListener('click',e=>{
   if(!e.target.dataset.tf) return;
