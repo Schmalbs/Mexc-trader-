@@ -1033,6 +1033,7 @@ async function pollAiStatus(){
   if(!authToken) return;
   try{
     const r = await fetch(PROXY+'/ai/status',{headers:authHeaders()});
+    if(r.status===401) return handleAuthFailure();
     if(!r.ok) return;
     const d = await r.json();
     const pill = document.getElementById('aiStatusPill');
@@ -1135,6 +1136,7 @@ async function pollBotStatus(){
   if(!authToken) return;
   try{
     const r = await fetch(PROXY+'/bot/status',{headers:authHeaders()});
+    if(r.status===401) return handleAuthFailure();
     if(!r.ok) return;
     const d = await r.json();
     serverBots = d.bots || [];
@@ -1295,6 +1297,7 @@ async function fetchAccountBalance(silent){
   }
   try{
     const res = await fetch(PROXY+'/account/balance',{headers:authHeaders()});
+    if(res.status===401){ handleAuthFailure(); return; }
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     const d = await res.json();
     const free   = d.free   || 0;
@@ -3057,7 +3060,23 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.1';
+const BUILD = '2026-06-12.2';
+
+function handleAuthFailure(){
+  // Server restarted → session token died. Stop pretending we're connected.
+  if(!authToken) return;
+  authToken = null;
+  try{ localStorage.removeItem('mexc_token'); }catch(e){}
+  serverBots = [];
+  botArmed = false;
+  try{ renderArmedBots(); }catch(e){}
+  try{ renderTradesPanel(); }catch(e){}
+  const pill = document.getElementById('connPill');
+  if(pill){ pill.className='pill pill-grey'; pill.textContent='● LOGIN REQUIRED'; }
+  const ov = document.getElementById('loginOverlay');
+  if(ov) ov.style.display='flex';
+  log('⚠️ Server restarted — your session expired. Log in again to reconnect (armed bots were cleared by the restart).','warn');
+}
 const logHistory = []; // full copyable history
 
 function log(msg,type=''){
@@ -3078,7 +3097,8 @@ async function copyFullLog(){
   let serverLog = '(server log unavailable)';
   try{
     const r = await fetch(PROXY+'/logs',{headers:authHeaders()});
-    if(r.ok) serverLog = await r.text();
+    if(r.status===401){ serverLog = '(401 — session expired; server restarted. Log in again.)'; handleAuthFailure(); }
+    else if(r.ok) serverLog = await r.text();
   }catch(e){ serverLog = '(server unreachable: '+e.message+')'; }
 
   const text =
