@@ -854,12 +854,40 @@ function setExitType(id, type){
   if(id==='botSl') updateSlHint();
 }
 
+function botEntryReference(){
+  // The price the bot will actually enter at: the TRIGGER level, not the
+  // current market price. Falls back to market price when no trigger is set.
+  try{
+    if(triggerSource==='price'){
+      const mp = parseFloat(document.getElementById('triggerManualPrice').value);
+      if(mp>0) return {p:mp, src:'trigger'};
+    } else {
+      const sel = document.getElementById('triggerLineId').value;
+      if(sel && sel!=='all'){
+        const tl = trendLines.find(t=>String(t.id)===String(sel));
+        if(tl && tl.isHoriz && tl.horizPrice>0) return {p:tl.horizPrice, src:'trigger'};
+        if(tl && !tl.isHoriz){
+          // trend line: use its level at the latest candle
+          const lastT = candles.length ? candles[candles.length-1].time : null;
+          if(lastT != null){
+            const slope = (tl.p2.price-tl.p1.price)/((tl.p2.time-tl.p1.time)||1);
+            const lvl = tl.p1.price + slope*(lastT-tl.p1.time);
+            if(lvl>0) return {p:lvl, src:'trigger'};
+          }
+        }
+      }
+    }
+  }catch(e){}
+  return {p:lastPrice||0, src:'market'};
+}
+
 function updateSlHint(){
   const el = document.getElementById('botSlHint');
   if(!el) return;
   const lev = parseInt(document.getElementById('botLeverage').value)||1;
   const mode = exitTypeState.botSl;
-  const p = lastPrice||0;
+  const ref = botEntryReference();
+  const p = ref.p;
   let txt = '';
   if(mode==='pct'){
     const movePct = parseFloat(document.getElementById('slPct').value)||0;
@@ -871,7 +899,7 @@ function updateSlHint(){
     const slP = parseFloat(document.getElementById('botSlPrice').value)||0;
     if(slP>0){
       const movePct = Math.abs(p-slP)/p*100;
-      txt = `≈ ${movePct.toFixed(2)}% price move = ${(movePct*lev).toFixed(1)}% of margin at ${lev}×`;
+      txt = `≈ ${movePct.toFixed(2)}% move from ${ref.src==='trigger'?'trigger $'+p.toFixed(2):'market'} = ${(movePct*lev).toFixed(1)}% of margin at ${lev}×`;
     }
   }
   el.textContent = txt;
@@ -1061,6 +1089,7 @@ function removeTpLevel(i){
 
 // init
 document.addEventListener('DOMContentLoaded', ()=>{ renderTpLevels(); updateSlHint(); });
+setInterval(updateSlHint, 3000); // stays accurate as trigger line/selection changes
 
 // ── SERVER BOT STATUS POLLING ──
 let lastServerLogCount = 0;
@@ -3079,7 +3108,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.13';
+const BUILD = '2026-06-12.14';
 
 function handleAuthFailure(){
   // Server restarted → session token died. Stop pretending we're connected.
