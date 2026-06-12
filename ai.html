@@ -101,6 +101,9 @@
     </div>
     <button class="btn btn-start" id="start-pattern" onclick="startBot('pattern')">▶ START PATTERN BOT</button>
     <button class="btn btn-stop" id="stop-pattern" onclick="stopBot('pattern')">■ STOP</button>
+    <button class="btn" onclick="toggleChart('pattern')" id="chartbtn-pattern"
+      style="margin-top:8px;background:var(--panel);border:1px solid var(--border);color:var(--muted);">📈 Show chart + AI lines</button>
+    <div id="chart-pattern" style="display:none;height:300px;margin-top:8px;border:1px solid var(--border);border-radius:6px;overflow:hidden;"></div>
     <div class="stats" id="stats-pattern" style="display:none;">
       <span>P&amp;L <b id="pnl-pattern">$0.00</b></span>
       <span>Position <b id="pos-pattern">none</b></span>
@@ -143,9 +146,18 @@
       </div>
     </div>
     <div id="opt-progress" style="display:none;font-family:var(--font-mono);font-size:10px;color:var(--warn);margin-bottom:6px;"></div>
+    <div id="opt-curve-wrap" style="display:none;margin-bottom:8px;">
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-bottom:3px;">
+        Equity curve of best — <span style="color:var(--accent2)">blue = train</span> · <span style="color:var(--warn)">orange = out-of-sample test</span>
+      </div>
+      <div id="opt-curve" style="height:160px;border:1px solid var(--border);border-radius:6px;overflow:hidden;"></div>
+    </div>
     <div id="opt-results" style="font-family:var(--font-mono);font-size:9px;color:var(--muted);line-height:1.6;"></div>
     <button class="btn" id="opt-apply" onclick="applyBest()" style="display:none;margin-top:6px;background:var(--accent);color:#06281f;">✅ APPLY BEST PARAMS TO BOT</button>
     <button class="btn btn-stop" id="stop-davidd" onclick="stopBot('davidd')">■ STOP</button>
+    <button class="btn" onclick="toggleChart('davidd')" id="chartbtn-davidd"
+      style="margin-top:8px;background:var(--panel);border:1px solid var(--border);color:var(--muted);">📈 Show chart + strategy</button>
+    <div id="chart-davidd" style="display:none;height:300px;margin-top:8px;border:1px solid var(--border);border-radius:6px;overflow:hidden;"></div>
     <div class="stats" id="stats-davidd" style="display:none;">
       <span>P&amp;L <b id="pnl-davidd">$0.00</b></span>
       <span>Position <b id="pos-davidd">none</b></span>
@@ -162,6 +174,168 @@
 
 <script>
 const PROXY = 'https://mexc-proxy-production.up.railway.app';
+const TFSEC = { Min15:900, Min60:3600, Hour4:14400 };
+
+// ── lightweight-charts loader ──
+let lwReady = false, lwQueue = [];
+(function loadLW(){
+  const urls = [
+    'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js',
+    'https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js',
+  ];
+  function tryLoad(i){
+    if(i>=urls.length) return;
+    const s = document.createElement('script');
+    s.src = urls[i];
+    s.onload = ()=>{ lwReady = true; lwQueue.forEach(f=>f()); lwQueue=[]; };
+    s.onerror = ()=> tryLoad(i+1);
+    document.head.appendChild(s);
+  }
+  tryLoad(0);
+})();
+function whenLw(fn){ lwReady ? fn() : lwQueue.push(fn); }
+
+// ── per-bot chart state ──
+const botCharts = {}; // {name: {chart, candles, candleData, lineSeries:[], priceLines:[], tf}}
+
+function calcEmaJs(values, period){
+  const k=2/(period+1); const out=[]; let prev=values[0];
+  for(let i=0;i<values.length;i++){ prev = i===0?values[0]:values[i]*k+prev*(1-k); out.push(prev); }
+  return out;
+}
+
+function toggleChart(name){
+  const box = document.getElementById('chart-'+name);
+  const btn = document.getElementById('chartbtn-'+name);
+  if(box.style.display==='none'){
+    box.style.display='block';
+    btn.textContent = '📉 Hide chart';
+    whenLw(()=> initBotChart(name));
+  } else {
+    box.style.display='none';
+    btn.textContent = name==='pattern' ? '📈 Show chart + AI lines' : '📈 Show chart + strategy';
+  }
+}
+
+async function initBotChart(name){
+  if(botCharts[name]){ refreshBotChart(name); return; }
+  const box = document.getElementById('chart-'+name);
+  const chart = LightweightCharts.createChart(box, {
+    layout:{ background:{color:'#0d0f14'}, textColor:'#6b7494', fontSize:9 },
+    grid:{ vertLines:{color:'#1a1f2e'}, horzLines:{color:'#1a1f2e'} },
+    timeScale:{ timeVisible:true, secondsVisible:false, borderColor:'#252b3d' },
+    rightPriceScale:{ borderColor:'#252b3d' },
+    crosshair:{ mode: LightweightCharts.CrosshairMode.Normal },
+  });
+  const candles = chart.addCandlestickSeries({
+    upColor:'#00c896', downColor:'#ff4d6a', borderVisible:false,
+    wickUpColor:'#00c896', wickDownColor:'#ff4d6a',
+  });
+  botCharts[name] = { chart, candles, candleData:[], lineSeries:[], priceLines:[], tf:'Min60' };
+  new ResizeObserver(()=>{ try{ chart.resize(box.clientWidth, box.clientHeight); }catch(e){} }).observe(box);
+  await refreshBotChart(name);
+}
+
+async function refreshBotChart(name){
+  const bc = botCharts[name];
+  if(!bc) return;
+  const st = lastStatus[name] || {};
+  const tf = st.decisionTf || 'Min60';
+  bc.tf = tf;
+  try{
+    const r = await fetch(`${PROXY}/https://contract.mexc.com/api/v1/contract/kline/BTC_USDT?interval=${tf}&limit=300`);
+    const d = await r.json();
+    if(!d || !d.success) return;
+    bc.candleData = d.data.time.map((t,i)=>({
+      time:Number(t), open:+d.data.open[i], high:+d.data.high[i],
+      low:+d.data.low[i], close:+d.data.close[i],
+    }));
+    bc.candles.setData(bc.candleData);
+    drawOverlays(name, st);
+    bc.chart.timeScale().fitContent();
+  }catch(e){}
+}
+
+function gridSegment(bc, p1, p2){
+  // expand a 2-point line into candle-grid-aligned points (avoids time-scale corruption)
+  if(!bc.candleData.length) return [];
+  const step = TFSEC[bc.tf]||3600;
+  const t0 = bc.candleData[0].time;
+  const lastT = bc.candleData[bc.candleData.length-1].time;
+  let a=p1, b=p2;
+  if(b.time < a.time){ a=p2; b=p1; }
+  const slope = (b.price-a.price)/((b.time-a.time)||step);
+  const gs = Math.max(t0, t0 + Math.round((a.time-t0)/step)*step);
+  const ge = Math.min(lastT + 30*step, t0 + Math.round((b.time-t0)/step)*step);
+  const pts=[];
+  for(let t=gs; t<=ge; t+=step) pts.push({time:t, value:a.price+slope*(t-a.time)});
+  return pts.length>=2 ? pts : [];
+}
+
+function drawOverlays(name, st){
+  const bc = botCharts[name];
+  if(!bc) return;
+  // clear old overlays
+  bc.lineSeries.forEach(s=>{ try{ bc.chart.removeSeries(s); }catch(e){} });
+  bc.lineSeries = [];
+  bc.priceLines.forEach(pl=>{ try{ bc.candles.removePriceLine(pl); }catch(e){} });
+  bc.priceLines = [];
+
+  // position levels (both bots)
+  if(st.position){
+    const p = st.position;
+    bc.priceLines.push(bc.candles.createPriceLine({price:p.entryPrice, color:'#3d7fff', lineWidth:1, lineStyle:0, title:'entry'}));
+    if(p.tpPrice) bc.priceLines.push(bc.candles.createPriceLine({price:p.tpPrice, color:'#00c896', lineWidth:1, lineStyle:2, title:'TP'}));
+    if(p.slPrice) bc.priceLines.push(bc.candles.createPriceLine({price:p.slPrice, color:'#ff4d6a', lineWidth:1, lineStyle:2, title:'SL'}));
+  }
+
+  if(name==='davidd'){
+    // EMA fast/slow from current params
+    const P = st.params || {emaFast:21, emaSlow:55};
+    if(bc.candleData.length){
+      const closes = bc.candleData.map(c=>c.close);
+      const ef = calcEmaJs(closes, P.emaFast), es = calcEmaJs(closes, P.emaSlow);
+      const sF = bc.chart.addLineSeries({color:'#3d7fff', lineWidth:1, priceLineVisible:false, lastValueVisible:false, title:`EMA${P.emaFast}`});
+      const sS = bc.chart.addLineSeries({color:'#f5a623', lineWidth:1, priceLineVisible:false, lastValueVisible:false, title:`EMA${P.emaSlow}`});
+      sF.setData(bc.candleData.map((c,i)=>({time:c.time, value:ef[i]})));
+      sS.setData(bc.candleData.map((c,i)=>({time:c.time, value:es[i]})));
+      bc.lineSeries.push(sF, sS);
+    }
+    // exit markers from trade history
+    if(st.tradeHistory && st.tradeHistory.length && bc.candleData.length){
+      const step = TFSEC[bc.tf]||3600;
+      const t0 = bc.candleData[0].time;
+      const lastT = bc.candleData[bc.candleData.length-1].time;
+      const markers = st.tradeHistory
+        .map(t=>{
+          let mt = Math.round(t.t/1000/step)*step;
+          mt = Math.max(t0, Math.min(lastT, mt));
+          return { time: mt, position: t.pnl>=0?'aboveBar':'belowBar',
+                   color: t.pnl>=0?'#00c896':'#ff4d6a',
+                   shape: t.side==='BUY'?'arrowDown':'arrowUp',
+                   text: `${t.pnl>=0?'+':''}$${t.pnl.toFixed(0)}` };
+        })
+        .sort((a,b)=>a.time-b.time);
+      try{ bc.candles.setMarkers(markers); }catch(e){}
+    }
+  }
+
+  if(name==='pattern'){
+    // AI-drawn pattern lines, dashed
+    const colors = ['#3d7fff','#f5a623','#b07cff','#00c896'];
+    (st.aiLines||[]).forEach((L,i)=>{
+      if(!L.p1 || !L.p2) return;
+      const pts = gridSegment(bc, L.p1, L.p2);
+      if(pts.length<2) return;
+      const s = bc.chart.addLineSeries({
+        color: colors[i%colors.length], lineWidth:1, lineStyle:2,
+        priceLineVisible:false, lastValueVisible:true, title: L.label||('AI '+(i+1)),
+      });
+      s.setData(pts);
+      bc.lineSeries.push(s);
+    });
+  }
+}
 let authToken = localStorage.getItem('mexc_token') || null;
 const modes = { pattern:'paper', davidd:'paper' };
 
@@ -213,6 +387,8 @@ function relogin(){
   document.getElementById('loginOverlay').style.display='flex';
 }
 
+const lastStatus = {};
+
 async function pollBot(name){
   if(!authToken) return;
   try{
@@ -220,6 +396,11 @@ async function pollBot(name){
     if(r.status===401) return relogin();
     if(!r.ok) return;
     const d = await r.json();
+    lastStatus[name] = d;
+    // live-refresh open charts
+    if(botCharts[name] && document.getElementById('chart-'+name).style.display!=='none'){
+      drawOverlays(name, d);
+    }
     const pill = document.getElementById('pill-'+name);
     if(d.enabled){
       pill.className = 'pill ' + (d.paper?'pill-paper':'pill-live');
@@ -254,7 +435,7 @@ async function pollBot(name){
 
 async function startOptimize(){
   const iterations = parseInt(document.getElementById('opt-iters').value)||15;
-  if(!confirm(`Run ${iterations} optimization iterations? Claude will propose parameters, the server backtests each on ~6000 candles of history, and Claude learns from results. Costs ~$${(iterations*0.015).toFixed(2)} in API credits. Takes ~${Math.ceil(iterations*0.4)} min.`)) return;
+  if(!confirm(`Run ${iterations} iterations across MEXC's full multi-asset universe — BTC/ETH/SOL, S&P500, NASDAQ, DOW, top US stocks, gold, silver, oil (whatever MEXC actually lists, discovered live) — and 4 strategy types? Each candidate is 70/30 train/test validated. Costs ~$${(iterations*0.02).toFixed(2)} in credits, takes ~${Math.ceil(4+iterations*0.5)} min.`)) return;
   const r = await fetch(PROXY+'/ai2/optimize/start',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({iterations, symbol:'BTC_USDT', tf:document.getElementById('tf-davidd').value})});
   const d = await r.json();
   if(d.error) alert(d.error);
@@ -266,6 +447,44 @@ async function applyBest(){
   const r = await fetch(PROXY+'/ai2/optimize/apply',{method:'POST',headers:authHeaders()});
   const d = await r.json();
   if(d.applied) alert('Applied: '+JSON.stringify(d.params));
+}
+
+let curveChart = null, curveTrain = null, curveTest = null, lastCurveSig = '';
+
+function renderEquityCurve(best){
+  if(!best || !best.curve || best.curve.length < 4) return;
+  const sig = best.symbol + best.strategy + JSON.stringify(best.params);
+  if(sig === lastCurveSig) return; // unchanged
+  whenLw(()=>{
+    const wrap = document.getElementById('opt-curve-wrap');
+    const box  = document.getElementById('opt-curve');
+    wrap.style.display = 'block';
+    if(!curveChart){
+      curveChart = LightweightCharts.createChart(box, {
+        layout:{ background:{color:'#0d0f14'}, textColor:'#6b7494', fontSize:9 },
+        grid:{ vertLines:{color:'#1a1f2e'}, horzLines:{color:'#1a1f2e'} },
+        timeScale:{ timeVisible:false, borderColor:'#252b3d' },
+        rightPriceScale:{ borderColor:'#252b3d' },
+      });
+      curveTrain = curveChart.addLineSeries({color:'#3d7fff', lineWidth:2, priceLineVisible:false, lastValueVisible:false});
+      curveTest  = curveChart.addLineSeries({color:'#f5a623', lineWidth:2, priceLineVisible:false, lastValueVisible:true});
+      new ResizeObserver(()=>{ try{ curveChart.resize(box.clientWidth, box.clientHeight); }catch(e){} }).observe(box);
+    }
+    const split = best.splitTime || 0;
+    const seen = new Set();
+    const trainPts = [], testPts = [];
+    for(const p of best.curve){
+      if(seen.has(p.t)) continue;
+      seen.add(p.t);
+      (p.t <= split ? trainPts : testPts).push({time: p.t, value: p.eq});
+    }
+    // connect segments visually
+    if(trainPts.length && testPts.length) testPts.unshift(trainPts[trainPts.length-1]);
+    curveTrain.setData(trainPts);
+    curveTest.setData(testPts);
+    curveChart.timeScale().fitContent();
+    lastCurveSig = sig;
+  });
 }
 
 async function pollOptimizer(){
@@ -284,14 +503,21 @@ async function pollOptimizer(){
       prog.style.display = d.best ? 'none' : prog.style.display;
     }
     if(d.top3 && d.top3.length){
-      resBox.innerHTML = '<b style="color:var(--text)">Leaderboard:</b><br>' + d.top3.map((x,i)=>
-        `${i+1}. net <b style="color:${x.netPct>=0?'var(--accent)':'var(--danger)'}">${x.netPct}%</b> · PF ${x.profitFactor} · DD ${x.maxDdPct}% · ${x.trades} trades<br>&nbsp;&nbsp;&nbsp;EMA ${x.params.emaFast}/${x.params.emaSlow} ADX>${x.params.adxMin} RSI ${x.params.rsiLow}-${x.params.rsiHigh} SL ${x.params.atrSL}×ATR TP ${x.params.atrTP}×ATR`
+      resBox.innerHTML = '<b style="color:var(--text)">Leaderboard (judged on TEST segment):</b><br>' + d.top3.map((x,i)=>
+        `${i+1}. <b style="color:var(--accent2)">${x.symbol||''} ${x.strategy||''}</b> · TEST net <b style="color:${(x.testNet||0)>=0?'var(--accent)':'var(--danger)'}">${x.testNet}%</b> PF ${x.testPf} DD ${x.testDd}% · train net ${x.trainNet}% · ${x.trades}t<br>&nbsp;&nbsp;&nbsp;<span style="opacity:.8">${JSON.stringify(x.params)}</span>`
       ).join('<br>');
       applyBtn.style.display = d.best && !d.running ? 'block' : 'none';
     }
+    renderEquityCurve(d.best);
   }catch(e){}
 }
 setInterval(pollOptimizer, 8000);
+setInterval(()=>{
+  for(const name of ['pattern','davidd']){
+    if(botCharts[name] && document.getElementById('chart-'+name).style.display!=='none')
+      refreshBotChart(name);
+  }
+}, 30000);
 
 function pollAll(){ pollBot('pattern'); pollBot('davidd'); pollOptimizer(); }
 setInterval(pollAll, 12000);
