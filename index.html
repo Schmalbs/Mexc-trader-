@@ -2648,7 +2648,7 @@ async function armBot(){
     ? `manual price $${cfg.manualPrice}`
     : (cfg.selectedLineId==='all' ? `ALL armed lines (${cfg.lines.length})` : `line #${cfg.selectedLineId}`);
   const tfLabel   = document.getElementById('triggerTf').value;
-  const notional  = cfg.qtyUsdt ? cfg.qtyUsdt.toFixed(2) : (cfg.qty * 0.0001 * (lastPrice||0)).toFixed(2);
+  const notional  = cfg.qtyUsdt ? (cfg.qtyUsdt * (cfg.leverage||1)).toFixed(2) : (cfg.qty * 0.0001 * (lastPrice||0)).toFixed(2);
   const alreadyArmed = serverBots.filter(b=>!b.manualOnly).length;
   // Build TP summary from actual tpLevels
   const tpLabel = tpLevels.map((t,i)=>
@@ -2669,7 +2669,7 @@ async function armBot(){
 Trigger: ${sideLabel}
 Source: ${srcLabel}
 Candle TF: ${tfLabel}
-Size: ${cfg.qtyUsdt ? '$'+notional+' USDT (converted at entry)' : cfg.qty+' contracts (≈$'+notional+')'} at ${cfg.leverage}× ${cfg.marginType}
+Size: ${cfg.qtyUsdt ? '$'+cfg.qtyUsdt+' margin × '+cfg.leverage+'× = $'+notional+' position (converted at entry)' : cfg.qty+' contracts (≈$'+notional+' notional)'} at ${cfg.leverage}× ${cfg.marginType}
 TP: ${tpLabel}
 SL: ${slLabel}${cfg.tp.breakEvenOnHit?' + break-even on TP hit ✓':''}
 
@@ -2927,6 +2927,14 @@ function renderTradesPanel(){
 
   // ── MEXC positions (from exchange) ──
   for(const pos of mexcPositions){
+    // If a server bot manages this position, its bot-trade card already
+    // shows it — skip the raw MEXC card to avoid the confusing duplicate.
+    {
+      const posLong = pos.positionType===1;
+      const managed = serverBots.find(b=>b.activeTrade && b.symbol===pos.symbol &&
+        b.activeTrade.side===(posLong?'BUY':'SELL'));
+      if(managed) continue;
+    }
     count++;
     const isLong = pos.positionType === 1;
     const entry  = parseFloat(pos.openAvgPrice||pos.holdAvgPrice||0);
@@ -2967,6 +2975,7 @@ function renderTradesPanel(){
       ${(()=>{
         const mgr = serverBots.find(b=>b.activeTrade && b.symbol===pos.symbol &&
           b.activeTrade.side===(isLong?'BUY':'SELL'));
+        // handled below — card itself is filtered out when managed
         return mgr
           ? `<div style="width:100%;margin-top:4px;text-align:center;color:var(--accent);font-family:var(--font-mono);font-size:9px;padding:4px;border:1px dashed var(--accent);border-radius:4px;">✓ Managed by Bot #${mgr.id}</div>`
           : `<button onclick="adoptPosition('${pos.symbol}',${pos.positionType},${vol},${entry},${lev})"
@@ -3209,7 +3218,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.18';
+const BUILD = '2026-06-12.19';
 
 function handleAuthFailure(){
   // Server restarted → session token died. Stop pretending we're connected.
