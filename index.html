@@ -290,8 +290,8 @@
         <button class="btn btn-ghost" id="toolHoriz" onclick="setDrawTool(drawTool==='horiz'?null:'horiz')" title="Horizontal Line">— Horiz</button>
         <button class="btn btn-ghost" onclick="clearAllLines()">✕ Clear</button>
         <button id="lockLinesBtn" onclick="toggleLinesLock()"
-          style="padding:2px 8px;font-size:10px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:var(--font-mono);white-space:nowrap;">
-          🔓 Unlock
+          style="padding:2px 8px;font-size:10px;border-radius:4px;border:1px solid var(--accent2);background:rgba(61,127,255,.25);color:var(--accent2);cursor:pointer;font-family:var(--font-mono);white-space:nowrap;">
+          🔒 Locked
         </button>
         <button class="btn btn-ghost" id="fullscreenBtn" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
         <button class="btn btn-ghost" onclick="location.reload()" title="Refresh app">↻</button>
@@ -1008,7 +1008,7 @@ async function pollAiMonitor(){
 setInterval(pollAiMonitor, 15000);
 
 // ── MULTI-TP LEVELS ──────────────────────────
-let tpLevels = [{type:'pct', pct:2, price:null, size:100}];
+let tpLevels = [{type:'price', pct:2, price:null, size:100}];
 
 function renderTpLevels(){
   const box = document.getElementById('tpLevelsContainer');
@@ -1050,7 +1050,7 @@ function toggleTpType(i){
 
 function addTpLevel(){
   const last = tpLevels[tpLevels.length-1];
-  tpLevels.push({type:'pct', pct: (last?.pct||2)*2, price:null, size:50});
+  tpLevels.push({type:'price', pct: (last?.pct||2)*2, price:null, size:50});
   renderTpLevels();
 }
 
@@ -1183,7 +1183,19 @@ function renderArmedBots(){
   if(!list.length){ box.innerHTML=''; box.style.display='none'; return; }
   box.style.display='block';
   box.innerHTML = list.map(b=>{
-    const src = b.triggerSource==='price' ? `price $${b.manualPrice}` : (b.selectedLineId==='all' ? 'all lines' : 'line #'+b.selectedLineId);
+    let src;
+    if(b.triggerSource==='price') src = `price $${b.manualPrice}`;
+    else if(b.selectedLineId==='all') src = 'all lines (snapshot)';
+    else {
+      // Show the bot's SNAPSHOT level — the truth it actually trades on.
+      const lvl = (b.triggerLevel!=null) ? `$${(+b.triggerLevel).toFixed(2)}` : 'line #'+b.selectedLineId;
+      // Warn if the chart line was deleted or moved since arming
+      const chartLine = trendLines.find(t=>String(t.id)===String(b.selectedLineId));
+      const moved = chartLine && b.triggerLevel!=null && chartLine.isHoriz
+        && Math.abs(chartLine.horizPrice - b.triggerLevel) > 0.01;
+      src = lvl + (!chartLine ? ' <span style="color:var(--warn)">(line deleted — bot still active)</span>'
+                  : moved ? ' <span style="color:var(--warn)">(line moved — bot uses old level)</span>' : '');
+    }
     const tradeTag = b.activeTrade ? ` · <span style="color:var(--warn)">IN TRADE ${b.activeTrade.side}</span>` : '';
     return `
     <div style="display:flex;align-items:center;justify-content:space-between;background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:4px 7px;margin-bottom:4px;font-family:var(--font-mono);font-size:10px;">
@@ -1857,7 +1869,14 @@ function updatePreview(pt2){
 function removePreview(){ if(previewLine){try{chart.removeSeries(previewLine);}catch{}previewLine=null;} }
 
 // ── TREND LINES ────────────────────────────────
-let tlIdCounter=0;
+let tlIdCounter=0; // legacy counter (kept for compat)
+function nextLineId(){
+  // lowest positive integer not used by a current line
+  const used = new Set(trendLines.map(t=>t.id));
+  let id = 1;
+  while(used.has(id)) id++;
+  return id;
+}
 const TF_SECONDS = {'1m':60,'5m':300,'15m':900,'1h':3600,'4h':14400,'1d':86400};
 
 // Fractional time mapping — crypto klines are uniformly spaced so
@@ -1923,7 +1942,7 @@ function addTrendLine(p1,p2){
   }
   // Ensure p1 is the earlier point so slope math stays sane
   if(p2.time < p1.time){ const tmp=p1; p1=p2; p2=tmp; }
-  const id=++tlIdCounter;
+  const id=nextLineId();
   const color = selectedLineColor || '#ffffff';
   const s=chart.addLineSeries({color,lineWidth:2,lastValueVisible:false,priceLineVisible:false});
   s.setData(buildLinePoints(p1,p2));
@@ -1936,7 +1955,7 @@ function addTrendLine(p1,p2){
   log(`Trend Line #${id} drawn`,'ok');
 }
 function addHorizLine(price){
-  const id = ++tlIdCounter;
+  const id = nextLineId();
   const color = selectedLineColor || '#ffffff';
   const s = chart.addLineSeries({color, lineWidth:2, lineStyle:0, lastValueVisible:true, priceLineVisible:false});
   // Horizontal: same price across all candle times + 150 future bars
@@ -1964,7 +1983,7 @@ function addHorizLine(price){
 // that endpoint anywhere, including into the future. Tap empty space to deselect.
 let selectedLine = null;
 let lineDrag = null; // {mode:'body'|'p1'|'p2', lastPrice, lastTime}
-let linesLocked = false;
+let linesLocked = true; // locked by default — toggle 🔒 in toolbar to move lines
 
 function saveLines(){
   const data = {
@@ -2246,22 +2265,9 @@ function renderTlList(){
 const lineLabels = {}; // id -> DOM el
 
 function addLineLabel(id, color){
-  const chartWrap = document.querySelector('.chart-wrap');
-  const existing = document.getElementById('linelabel-'+id);
-  if(existing) existing.remove();
-  const el = document.createElement('div');
-  el.id = 'linelabel-'+id;
-  el.className = 'chart-line-label';
-  el.textContent = '#'+id;
-  el.style.background = color||'#fff';
-  el.style.color = isLightColor(color) ? '#000' : '#fff';
-  el.style.border = '1px solid rgba(255,255,255,.3)';
-  // Position: right side of chart at 40% height (updated on render)
-  el.style.right = '50px';
-  el.style.top = '40%';
-  chartWrap.appendChild(el);
-  lineLabels[id] = el;
-  updateLabelPositions();
+  // Label badges retired — they collided with the toolbar buttons.
+  // Lines are identified by the Lines panel and the price-axis value.
+  return;
 }
 
 function removeLineLabel(id){
@@ -2506,7 +2512,7 @@ async function armBot(){
       type: 'pct',
       value: tpLevels[0]?.pct || 2, // compat for single-TP checks
       tf: TF_MAP[document.getElementById('tpTf').value]||'Min15',
-      levels: tpLevels.map(t=>({pct:t.pct, size:t.size})),
+      levels: tpLevels.map(t=>({type:t.type||'pct', pct:t.pct, price:t.price, size:t.size})),
       breakEvenOnHit: document.getElementById('breakEvenOnTp').checked,
     },
     sl: {
@@ -2517,6 +2523,17 @@ async function armBot(){
     },
     // margin-based SL needs leverage to convert: priceMove% = marginPct / leverage
   };
+
+  // Validate TP levels before going anywhere near the server
+  for(let i=0;i<tpLevels.length;i++){
+    const t = tpLevels[i];
+    if(t.type==='price' && !(parseFloat(t.price)>0)){
+      log(`TP${i+1} needs a target price (or switch it to %).`,'err'); return;
+    }
+    if(t.type!=='price' && !(parseFloat(t.pct)>0)){
+      log(`TP${i+1} needs a % value.`,'err'); return;
+    }
+  }
 
   // ── CONFIRMATION — full summary before any bot goes live ──
   const sideLabel = cfg.dir==='above' ? 'BUY (close above)' : 'SELL (close below)';
@@ -3062,7 +3079,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.10';
+const BUILD = '2026-06-12.13';
 
 function handleAuthFailure(){
   // Server restarted → session token died. Stop pretending we're connected.
