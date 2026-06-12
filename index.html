@@ -262,6 +262,8 @@
     <input type="password" id="apiKey" placeholder="API Key" style="display:none"/>
     <input type="password" id="apiSecret" placeholder="API Secret" style="display:none"/>
     <span id="connPill" class="pill pill-grey">● NOT CONNECTED</span>
+    <a href="./ai.html" title="AI Bots"
+       style="font-family:var(--font-mono);font-size:10px;color:var(--accent2);text-decoration:none;border:1px solid var(--accent2);border-radius:4px;padding:3px 8px;white-space:nowrap;">🤖 AI</a>
     <!-- ACCOUNT % BADGE -->
     <div class="acct-badge" style="cursor:pointer" onclick="toggleHeaderPnlMode()" title="Click to toggle % / $">
       <div class="acct-pct zero" id="acctPct">0.00%</div>
@@ -697,33 +699,13 @@
       </div>
     </div>
 
-    <!-- AI TRADER -->
-    <div class="panel-section" id="aiTraderPanel">
+    <!-- AI BOTS MONITOR (full controls on ai.html) -->
+    <div class="panel-section">
       <div class="panel-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>🧠 AI Trader (Claude)</span>
-        <span id="aiStatusPill" class="pill pill-grey" style="font-size:8px;">OFF</span>
+        <span>🤖 AI Bots</span>
+        <a href="./ai.html" style="color:var(--accent2);font-family:var(--font-mono);font-size:9px;text-decoration:none;border:1px solid var(--accent2);border-radius:3px;padding:2px 8px;">Open AI page →</a>
       </div>
-      <div class="inline-row" style="margin-bottom:6px;">
-        <div class="form-row" style="margin-bottom:0">
-          <div class="form-label">Allocation ($)</div>
-          <input type="number" id="aiAllocation" value="100" min="10" step="10"/>
-        </div>
-        <div class="form-row" style="margin-bottom:0">
-          <div class="form-label">Decision TF</div>
-          <select id="aiDecisionTf">
-            <option value="Min15">15m</option>
-            <option value="Min60" selected>1h</option>
-            <option value="Hour4">4h</option>
-          </select>
-        </div>
-      </div>
-      <button class="btn btn-accent" style="width:100%;" id="aiStartBtn" onclick="aiStart()">🧠 START AI TRADING</button>
-      <button class="btn btn-danger" style="width:100%;display:none;" id="aiStopBtn" onclick="aiStop()">■ STOP AI</button>
-      <div id="aiStats" style="display:none;margin-top:8px;font-family:var(--font-mono);font-size:10px;color:var(--muted);">
-        AI P&L: <span id="aiPnl" style="color:var(--text);font-weight:600;">$0.00</span>
-        &nbsp;|&nbsp; Position: <span id="aiPos" style="color:var(--text);">none</span>
-      </div>
-      <div id="aiDecisionLog" style="margin-top:8px;max-height:160px;overflow-y:auto;"></div>
+      <div id="aiMonitorStrip" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);line-height:1.7;">Loading…</div>
     </div>
 
     <!-- OPEN TRADES -->
@@ -979,7 +961,7 @@ async function appLogin(){
       log('Logged in ✓ — server connection active','ok');
       fetchAccountBalance();
       pollBotStatus();
-      pollAiStatus();
+      pollAiMonitor();
     } else {
       err.textContent = 'Wrong password';
     }
@@ -995,87 +977,35 @@ async function tryExistingToken(){
       log('Session restored ✓','ok');
       fetchAccountBalance();
       pollBotStatus();
-      pollAiStatus();
+      pollAiMonitor();
     }
   }catch(e){}
 }
 
 function authHeaders(extra={}){ return Object.assign({'X-Auth':authToken}, extra); }
 
-// ── AI TRADER ──
-async function aiStart(){
-  if(!authToken){ log('Log in first.','err'); return; }
-  const allocation = parseFloat(document.getElementById('aiAllocation').value)||100;
-  const decisionTf = document.getElementById('aiDecisionTf').value;
-  if(!confirm(`Start AI trading with $${allocation}? Claude will make autonomous decisions on real money. Treat this as money you can afford to lose entirely.`)) return;
-  try{
-    const r = await fetch(PROXY+'/ai/start',{
-      method:'POST',
-      headers:authHeaders({'Content-Type':'application/json'}),
-      body:JSON.stringify({allocation, decisionTf, symbol: currentSymbol})
-    });
-    const d = await r.json();
-    if(d.started){
-      log('🧠 AI Trader started — Claude is now making decisions','ok');
-      pollAiStatus();
-    } else {
-      log(`AI start error: ${d.error||JSON.stringify(d)}`,'err');
-    }
-  }catch(e){ log(`AI start failed: ${e.message}`,'err'); }
-}
 
-async function aiStop(){
-  if(!confirm('Stop AI trading? Any open AI position stays open — close it manually if needed.')) return;
-  try{
-    await fetch(PROXY+'/ai/stop',{method:'POST',headers:authHeaders()});
-    log('AI Trader stopped','warn');
-    pollAiStatus();
-  }catch(e){}
-}
 
-async function pollAiStatus(){
+async function pollAiMonitor(){
   if(!authToken) return;
-  try{
-    const r = await fetch(PROXY+'/ai/status',{headers:authHeaders()});
-    if(r.status===401) return handleAuthFailure();
-    if(!r.ok) return;
-    const d = await r.json();
-    const pill = document.getElementById('aiStatusPill');
-    const startBtn = document.getElementById('aiStartBtn');
-    const stopBtn = document.getElementById('aiStopBtn');
-    const stats = document.getElementById('aiStats');
-
-    if(d.enabled){
-      pill.className='pill pill-green'; pill.textContent='LIVE';
-      startBtn.style.display='none'; stopBtn.style.display='block'; stats.style.display='block';
-    } else {
-      pill.className='pill pill-grey'; pill.textContent = d.hasApiKey ? 'OFF' : 'NO API KEY';
-      startBtn.style.display='block'; stopBtn.style.display='none';
-      stats.style.display = d.realizedPnl !== 0 ? 'block' : 'none';
-    }
-
-    const pnlEl = document.getElementById('aiPnl');
-    pnlEl.textContent = `${d.realizedPnl>=0?'+':''}$${(d.realizedPnl||0).toFixed(2)}`;
-    pnlEl.style.color = d.realizedPnl>0?'var(--accent)':d.realizedPnl<0?'var(--danger)':'var(--text)';
-    document.getElementById('aiPos').textContent = d.position
-      ? `${d.position.side} @ $${d.position.entryPrice} (${d.position.leverage}×)`
-      : 'none';
-
-    // Render decision log
-    const logEl = document.getElementById('aiDecisionLog');
-    if(d.decisions && d.decisions.length){
-      logEl.innerHTML = d.decisions.slice().reverse().map(dec=>`
-        <div style="background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:6px 8px;margin-bottom:4px;font-family:var(--font-mono);font-size:9px;">
-          <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
-            <span style="font-weight:700;color:${dec.action==='long'?'var(--accent)':dec.action==='short'?'var(--danger)':'var(--muted)'};text-transform:uppercase;">${dec.action}</span>
-            <span style="color:var(--muted);">${new Date(dec.t).toLocaleTimeString()}</span>
-          </div>
-          <div style="color:var(--muted);line-height:1.4;">${dec.reasoning||''}</div>
-        </div>`).join('');
-    }
-  }catch(e){}
+  const el = document.getElementById('aiMonitorStrip');
+  if(!el) return;
+  const rows = [];
+  for(const name of ['pattern','davidd']){
+    try{
+      const r = await fetch(PROXY+`/ai2/${name}/status`,{headers:authHeaders()});
+      if(!r.ok){ continue; }
+      const d = await r.json();
+      const state = d.enabled ? (d.paper?'📝 paper':'💸 LIVE') : '○ off';
+      const pnl = `${d.realizedPnl>=0?'+':''}$${(d.realizedPnl||0).toFixed(2)}`;
+      const pos = d.position ? ` · ${d.position.side} @ $${d.position.entryPrice}` : '';
+      const label = name==='pattern' ? '📐 Pattern' : '📊 Systematic';
+      rows.push(`${label}: ${state} · P&L <span style="color:${d.realizedPnl>0?'var(--accent)':d.realizedPnl<0?'var(--danger)':'var(--text)'}">${pnl}</span>${pos}`);
+    }catch(e){}
+  }
+  el.innerHTML = rows.length ? rows.join('<br>') : 'Both bots off — open the AI page to start.';
 }
-setInterval(pollAiStatus, 12000);
+setInterval(pollAiMonitor, 15000);
 
 // ── MULTI-TP LEVELS ──────────────────────────
 let tpLevels = [{type:'pct', pct:2, price:null, size:100}];
@@ -3131,7 +3061,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.6';
+const BUILD = '2026-06-12.9';
 
 function handleAuthFailure(){
   // Server restarted → session token died. Stop pretending we're connected.
