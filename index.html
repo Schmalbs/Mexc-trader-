@@ -1717,8 +1717,10 @@ function startPricePoll(){
   if(watchInterval) clearInterval(watchInterval);
   watchInterval = setInterval(async()=>{
     try{
+      if(!authToken) return; // ticker is behind the login wall
       // Route through server — it caches 1.5s so MEXC never gets hit more than once/1.5s
-      const res = await fetch(PROXY+`/ticker?symbol=${currentSymbol}`);
+      const res = await fetch(PROXY+`/ticker?symbol=${currentSymbol}`,{headers:authHeaders()});
+      if(res.status===401) return handleAuthFailure();
       if(!res.ok) return;
       const d = await res.json();
       if(!d || !d.success) return;
@@ -3218,7 +3220,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.19';
+const BUILD = '2026-06-12.20';
 
 function handleAuthFailure(){
   // Server restarted → session token died. Stop pretending we're connected.
