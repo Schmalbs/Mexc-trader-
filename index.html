@@ -689,6 +689,10 @@
         </div>
         <button class="btn btn-accent" style="width:100%;margin-top:4px" id="armBtn" onclick="armBot()">▶ ARM NEW BOT</button>
         <div id="armedBotsList" style="display:none;margin-top:8px;"></div>
+        <button class="btn" id="rearmBtn" onclick="rearmSavedBots()"
+          style="width:100%;margin-top:6px;display:none;background:rgba(61,127,255,.12);border:1px solid var(--accent2);color:var(--accent2);">
+          ↻ RE-ARM PREVIOUS BOTS
+        </button>
         <button class="btn btn-danger" style="width:100%;margin-top:6px;display:none" id="disarmBtn" onclick="disarmBot()">■ DISARM ALL BOTS</button>
       </div>
     </div>
@@ -1132,6 +1136,59 @@ document.addEventListener('DOMContentLoaded', ()=>{ renderTpLevels(); updateSlHi
 let lastServerLogCount = 0;
 let serverBots = []; // mirrored from server
 
+// ── BOT CONFIG MEMORY: survive server restarts with one-tap re-arm ──
+function saveBotConfig(cfg){
+  try{
+    let saved = JSON.parse(localStorage.getItem('mexc_bot_configs')||'[]');
+    const key = JSON.stringify({d:cfg.dir,s:cfg.triggerSource,l:cfg.selectedLineId,p:cfg.manualPrice,t:cfg.trigTf});
+    saved = saved.filter(x=>x.key!==key); // replace same-trigger config with latest
+    saved.push({key, t:Date.now(), cfg});
+    if(saved.length>8) saved = saved.slice(-8);
+    localStorage.setItem('mexc_bot_configs', JSON.stringify(saved));
+  }catch(e){}
+}
+
+function forgetBotConfig(bot){
+  // Manual disarm = intentional → remove from re-arm memory
+  try{
+    let saved = JSON.parse(localStorage.getItem('mexc_bot_configs')||'[]');
+    if(bot){
+      const key = JSON.stringify({d:bot.dir,s:bot.triggerSource,l:bot.selectedLineId,p:bot.manualPrice,t:bot.trigTf});
+      saved = saved.filter(x=>x.key!==key);
+    } else {
+      saved = []; // disarm-all = forget everything
+    }
+    localStorage.setItem('mexc_bot_configs', JSON.stringify(saved));
+  }catch(e){}
+}
+
+function getSavedBotConfigs(){
+  try{ return JSON.parse(localStorage.getItem('mexc_bot_configs')||'[]'); }catch(e){ return []; }
+}
+
+async function rearmSavedBots(){
+  const saved = getSavedBotConfigs();
+  if(!saved.length){ log('No saved bot configs to re-arm.','warn'); return; }
+  const recent = saved.slice(-5);
+  const lines = recent.map((s,i)=>{
+    const c = s.cfg;
+    const src = c.triggerSource==='price' ? `price $${c.manualPrice}` : `line #${c.selectedLineId}`;
+    const size = c.qtyUsdt ? `$${c.qtyUsdt}` : `${c.qty} contracts`;
+    return `${i+1}. ${c.dir==='above'?'BUY above':'SELL below'} ${src} [${c.trigTf}] ${size} ${c.leverage}×`;
+  }).join('\n');
+  if(!confirm(`Re-arm these ${recent.length} bot(s)?\n\n${lines}\n\nNote: line-based bots use the line geometry saved with each config.`)) return;
+  let okCount = 0;
+  for(const s of recent){
+    try{
+      const r = await fetch(PROXY+'/bot/arm',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(s.cfg)});
+      if(r.status===401) return handleAuthFailure();
+      if(r.ok) okCount++;
+    }catch(e){}
+  }
+  log(`↻ Re-armed ${okCount}/${recent.length} bot(s) ✓`, okCount?'ok':'err');
+  pollBotStatus();
+}
+
 async function pollBotStatus(){
   if(!authToken) return;
   try{
@@ -1153,6 +1210,13 @@ async function pollBotStatus(){
       botArmed = false;
     }
     document.getElementById('disarmBtn').style.display = triggerBots.length ? 'block' : 'none';
+    // Offer one-tap re-arm when the server has no bots but we remember some
+    const rearmBtn = document.getElementById('rearmBtn');
+    if(rearmBtn){
+      const saved = getSavedBotConfigs();
+      rearmBtn.style.display = (!triggerBots.length && saved.length) ? 'block' : 'none';
+      if(saved.length) rearmBtn.textContent = `↻ RE-ARM PREVIOUS BOTS (${Math.min(5,saved.length)})`;
+    }
 
     // First server bot trade drives the chart overlay (back-compat)
     const tradeBot = serverBots.find(b => b.activeTrade);
@@ -2572,6 +2636,7 @@ ${alreadyArmed > 0 ? `⚠️ You already have ${alreadyArmed} bot${alreadyArmed>
     if(!r.ok) throw new Error('arm failed');
     const d = await r.json();
     log(`Bot #${d.id} armed on SERVER (${d.totalBots} running) — set up another or close the page ✓`,'ok');
+    saveBotConfig(cfg);
     pollBotStatus();
   }catch(e){ log(`Arm failed: ${e.message}`,'err'); return; }
 
@@ -2586,6 +2651,13 @@ ${alreadyArmed > 0 ? `⚠️ You already have ${alreadyArmed} bot${alreadyArmed>
 async function disarmBot(id){
   const msg = id != null ? `Disarm Bot #${id}?` : 'Disarm ALL bots? They will stop watching for entries.';
   if(!confirm(msg)) return;
+  // Intentional disarm → forget the config so re-arm won't offer it back
+  if(id != null){
+    const bot = serverBots.find(b=>b.id===id);
+    if(bot && !bot.manualOnly) forgetBotConfig(bot);
+  } else {
+    forgetBotConfig(null);
+  }
   if(authToken){
     try{
       await fetch(PROXY+'/bot/disarm',{
@@ -3068,7 +3140,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.3';
+const BUILD = '2026-06-12.5';
 
 function handleAuthFailure(){
   // Server restarted → session token died. Stop pretending we're connected.
