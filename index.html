@@ -1144,10 +1144,18 @@ async function rearmSavedBots(){
   let okCount = 0;
   for(const s of recent){
     try{
-      const r = await fetch(PROXY+'/bot/arm',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(s.cfg)});
-      if(r.status===401) return handleAuthFailure();
+      let r = await fetch(PROXY+'/bot/arm',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(s.cfg)});
+      if(r.status===401){
+        // possible deploy race — settle, then retry this arm once
+        await new Promise(w=>setTimeout(w, 2000));
+        r = await fetch(PROXY+'/bot/arm',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(s.cfg)});
+      }
+      if(r.status===401){ handleAuthFailure(); break; }
       if(r.ok) okCount++;
     }catch(e){}
+  }
+  if(okCount < recent.length){
+    log(`↻ Re-armed ${okCount}/${recent.length} — memory kept the rest; tap again after logging in if needed.`, okCount?'warn':'err');
   }
   log(`↻ Re-armed ${okCount}/${recent.length} bot(s) ✓`, okCount?'ok':'err');
   pollBotStatus();
@@ -3232,10 +3240,20 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.22';
+const BUILD = '2026-06-12.23';
 
-function handleAuthFailure(){
-  // Server restarted → session token died. Stop pretending we're connected.
+let authFailChecking = false;
+async function handleAuthFailure(){
+  // A single 401 can be a transient deploy race (old/new server instances
+  // overlapping). Verify before logging the user out.
+  if(!authToken || authFailChecking) return;
+  authFailChecking = true;
+  await new Promise(r=>setTimeout(r, 1500));
+  try{
+    const v = await fetch(PROXY+'/bot/status',{headers:authHeaders()});
+    if(v.ok){ authFailChecking = false; return; } // token actually fine — ignore the blip
+  }catch(e){}
+  authFailChecking = false;
   if(!authToken) return;
   authToken = null;
   try{ localStorage.removeItem('mexc_token'); }catch(e){}
