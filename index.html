@@ -1199,7 +1199,14 @@ async function pollBotStatus(){
     // Show new server logs
     if(d.logs && d.logs.length){
       const newLogs = d.logs.slice(lastServerLogCount);
-      newLogs.forEach(l => log(`[server] ${l.msg}`, l.type));
+      newLogs.forEach(l => {
+        // Stamp replayed entries with their ORIGINAL server time so old
+        // events (like a morning restart) don't read as breaking news.
+        const orig = l.t ? new Date(l.t) : null;
+        const ageMin = orig ? (Date.now()-orig.getTime())/60000 : 0;
+        const stamp = (orig && ageMin > 2) ? `[server ${orig.toISOString().slice(11,16)}Z] ` : '[server] ';
+        log(stamp + l.msg, l.type);
+      });
       lastServerLogCount = d.logs.length;
     }
   }catch(e){}
@@ -1661,6 +1668,7 @@ async function loadCandles(attempt){
     restoreLines();    // bring back saved lines (only when none drawn yet)
     updateCandleTimer();
     updateSlHint();
+    startPricePoll();  // live price ticks + new-candle refresh (safe to re-call)
     fetchDailyOpen();
     startPricePoll();
   }catch(e){
@@ -3201,7 +3209,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.16';
+const BUILD = '2026-06-12.18';
 
 function handleAuthFailure(){
   // Server restarted → session token died. Stop pretending we're connected.
