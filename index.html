@@ -2145,6 +2145,7 @@ function selectLine(tl){
   }
   selectedLine = tl;
   if(tl){ try{ tl.series.applyOptions({lineWidth:4}); }catch(e){} }
+  try{ renderTlList(); }catch(e){} // keep panel highlight in sync with chart selection
 
   // Chart delete button retired — use the ✕ in the Lines panel
   const delBtn = document.getElementById('deleteLineBtn');
@@ -2308,14 +2309,18 @@ function renderTlList(){
   if(!trendLines.length){ box.innerHTML='<div style="font-size:11px;color:var(--muted);font-family:var(--font-mono)">No lines drawn yet.</div>';return; }
   const trigSel = (document.getElementById('triggerLineId')||{}).value;
   box.innerHTML=trendLines.map(tl=>{
-    const isTrigger = String(tl.id)===String(trigSel);
-    const hl = isTrigger ? 'outline:2px solid var(--accent);outline-offset:-2px;background:rgba(64,224,160,0.07);border-radius:6px;' : '';
+    const isTrigger  = String(tl.id)===String(trigSel);
+    const isSelected = selectedLine && selectedLine.id===tl.id;
+    // Chart-selected line = strong highlight (the "about to delete this one" cue)
+    const hl = isSelected
+      ? 'outline:2px solid #58a6ff;outline-offset:-2px;background:rgba(88,166,255,0.12);border-radius:6px;'
+      : (isTrigger ? 'outline:2px solid var(--accent);outline-offset:-2px;background:rgba(64,224,160,0.07);border-radius:6px;' : '');
     return `
     <div class="tl-item ${tl.armed?'armed':''}" id="tlitem-${tl.id}" style="${hl}">
       <div style="min-width:22px;height:22px;border-radius:4px;background:${tl.color||'#fff'};color:#000;font-family:var(--font-mono);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">#${tl.id}</div>
       <div class="tl-item-info">
         <div class="tl-name">${tl.isHoriz?'— Horiz':'↗ Trend'}${tl.isHoriz?' @ $'+tl.horizPrice.toFixed(4):''}</div>
-        <div class="tl-meta">${tl.armed?'🟢 ARMED':'⚪ idle'}${isTrigger?' · <span style="color:var(--accent)">🎯 trigger line</span>':''}</div>
+        <div class="tl-meta">${tl.armed?'🟢 ARMED':'⚪ idle'}${isSelected?' · <span style="color:#58a6ff">✦ selected on chart</span>':''}${isTrigger?' · <span style="color:var(--accent)">🎯 trigger line</span>':''}</div>
       </div>
       <button class="tl-del" onclick="removeTrendLine(${tl.id})">✕</button>
     </div>`;
@@ -3249,7 +3254,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.25';
+const BUILD = '2026-06-12.26';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
