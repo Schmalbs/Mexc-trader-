@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
+<title>MEXC AI Bots</title>
+<style>
+  :root{
+    --bg:#0d0f14; --surface:#141823; --panel:#1a1f2e; --border:#252b3d;
+    --text:#e8eaf0; --muted:#6b7494; --accent:#00c896; --accent2:#3d7fff;
+    --danger:#ff4d6a; --warn:#f5a623;
+    --font-mono:'SF Mono',Menlo,Consolas,monospace;
+    --font-ui:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html{overflow-x:hidden;}
+  body{background:var(--bg);color:var(--text);font-family:var(--font-ui);min-height:100dvh;
+    padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);}
+  header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;
+    background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;}
+  .logo{font-family:var(--font-mono);font-weight:700;font-size:14px;}
+  .logo b{color:var(--accent);}
+  .back-link{color:var(--accent2);text-decoration:none;font-family:var(--font-mono);font-size:11px;}
+  .wrap{max-width:680px;margin:0 auto;padding:14px;}
+  .bot-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;}
+  .bot-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .bot-title{font-family:var(--font-mono);font-weight:700;font-size:13px;letter-spacing:.5px;}
+  .pill{font-family:var(--font-mono);font-size:9px;padding:3px 9px;border-radius:99px;font-weight:700;}
+  .pill-live{background:rgba(255,77,106,.15);color:var(--danger);border:1px solid var(--danger);}
+  .pill-paper{background:rgba(245,166,35,.15);color:var(--warn);border:1px solid var(--warn);}
+  .pill-off{background:rgba(107,116,148,.15);color:var(--muted);border:1px solid var(--border);}
+  .bot-desc{font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:12px;}
+  .row{display:flex;gap:8px;margin-bottom:8px;}
+  .field{flex:1;}
+  .field label{display:block;font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;}
+  .field input,.field select{width:100%;background:var(--panel);border:1px solid var(--border);color:var(--text);
+    border-radius:5px;padding:8px;font-family:var(--font-mono);font-size:12px;}
+  .toggle-row{display:flex;align-items:center;gap:8px;margin:8px 0;font-family:var(--font-mono);font-size:10px;color:var(--muted);}
+  .toggle-row input{accent-color:var(--accent);width:16px;height:16px;}
+  .mode-toggle{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:10px;}
+  .mode-btn{flex:1;background:var(--panel);border:none;color:var(--muted);padding:9px;font-family:var(--font-mono);font-size:11px;cursor:pointer;font-weight:700;}
+  .mode-btn.paper-active{background:rgba(245,166,35,.2);color:var(--warn);}
+  .mode-btn.live-active{background:rgba(255,77,106,.2);color:var(--danger);}
+  .btn{width:100%;border:none;border-radius:7px;padding:12px;font-family:var(--font-mono);font-size:12px;font-weight:700;cursor:pointer;}
+  .btn-start{background:var(--accent);color:#06281f;}
+  .btn-stop{background:var(--danger);color:#fff;display:none;}
+  .stats{display:flex;gap:14px;font-family:var(--font-mono);font-size:11px;color:var(--muted);margin:10px 0 4px;}
+  .stats b{color:var(--text);}
+  .decisions{margin-top:10px;max-height:300px;overflow-y:auto;}
+  .dec{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:7px 9px;margin-bottom:5px;font-family:var(--font-mono);font-size:10px;}
+  .dec-top{display:flex;justify-content:space-between;margin-bottom:3px;}
+  .dec-action{font-weight:700;text-transform:uppercase;}
+  .dec-long{color:var(--accent);} .dec-short{color:var(--danger);} .dec-hold{color:var(--muted);} .dec-close{color:var(--warn);}
+  .dec-time{color:var(--muted);font-size:9px;}
+  .dec-body{color:var(--muted);line-height:1.45;}
+  .dec-pattern{color:var(--accent2);font-weight:700;}
+  #loginOverlay{position:fixed;inset:0;background:var(--bg);z-index:99;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;}
+  #loginOverlay input{background:var(--panel);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:12px;font-size:14px;width:240px;text-align:center;}
+  #loginOverlay button{background:var(--accent);color:#06281f;border:none;border-radius:7px;padding:12px 40px;font-weight:700;font-size:14px;cursor:pointer;}
+  .note{font-size:10px;color:var(--muted);font-family:var(--font-mono);margin-top:8px;line-height:1.5;}
+</style>
+</head>
+<body>
+
+<div id="loginOverlay">
+  <div class="logo" style="font-size:20px;"><b>MEXC</b>/AI BOTS</div>
+  <input type="password" id="pw" placeholder="Password"/>
+  <button onclick="doLogin()">Enter</button>
+</div>
+
+<header>
+  <div class="logo"><b>MEXC</b>/AI BOTS</div>
+  <a class="back-link" href="./index.html">← Trading app</a>
+</header>
+
+<div class="wrap">
+
+  <!-- ═══ PATTERN BOT ═══ -->
+  <div class="bot-card" id="card-pattern">
+    <div class="bot-head">
+      <div class="bot-title">📐 PATTERN TRADER</div>
+      <span class="pill pill-off" id="pill-pattern">OFF</span>
+    </div>
+    <div class="bot-desc">
+      Detects swings &amp; levels, then Claude judges chart patterns — wedges, bull/bear flags,
+      H&amp;S, inverse H&amp;S, channels, daily/weekly S/R breaks — and trades breakouts.
+      Requires ANTHROPIC_API_KEY.
+    </div>
+    <div class="mode-toggle">
+      <button class="mode-btn paper-active" id="mode-pattern-paper" onclick="setMode('pattern','paper')">📝 PAPER</button>
+      <button class="mode-btn" id="mode-pattern-live" onclick="setMode('pattern','live')">💸 LIVE</button>
+    </div>
+    <div class="row">
+      <div class="field"><label>Allocation $</label><input type="number" id="alloc-pattern" value="100"/></div>
+      <div class="field"><label>Decision TF</label>
+        <select id="tf-pattern"><option value="Min15">15m</option><option value="Min60" selected>1h</option><option value="Hour4">4h</option></select>
+      </div>
+      <div class="field"><label>Lines used</label>
+        <select id="lines-pattern"><option value="both" selected>AI + mine</option><option value="ai">AI only</option><option value="user">Mine only</option></select>
+      </div>
+    </div>
+    <button class="btn btn-start" id="start-pattern" onclick="startBot('pattern')">▶ START PATTERN BOT</button>
+    <button class="btn btn-stop" id="stop-pattern" onclick="stopBot('pattern')">■ STOP</button>
+    <div class="stats" id="stats-pattern" style="display:none;">
+      <span>P&amp;L <b id="pnl-pattern">$0.00</b></span>
+      <span>Position <b id="pos-pattern">none</b></span>
+    </div>
+    <div class="decisions" id="dec-pattern"></div>
+  </div>
+
+  <!-- ═══ DAVIDD BOT ═══ -->
+  <div class="bot-card" id="card-davidd">
+    <div class="bot-head">
+      <div class="bot-title">📊 SYSTEMATIC (Davidd-style)</div>
+      <span class="pill pill-off" id="pill-davidd">OFF</span>
+    </div>
+    <div class="bot-desc">
+      Mechanical trend engine: EMA 21/55 cross + ADX&gt;23 regime filter + RSI confirmation,
+      2×ATR stop, 3.5×ATR target, break-even at +1R. Optional Claude supervisor can veto
+      weak signals. Runs <b>without an API key</b> when supervisor is off.
+    </div>
+    <div class="mode-toggle">
+      <button class="mode-btn paper-active" id="mode-davidd-paper" onclick="setMode('davidd','paper')">📝 PAPER</button>
+      <button class="mode-btn" id="mode-davidd-live" onclick="setMode('davidd','live')">💸 LIVE</button>
+    </div>
+    <div class="row">
+      <div class="field"><label>Allocation $</label><input type="number" id="alloc-davidd" value="100"/></div>
+      <div class="field"><label>Decision TF</label>
+        <select id="tf-davidd"><option value="Min15">15m</option><option value="Min60" selected>1h</option><option value="Hour4">4h</option></select>
+      </div>
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="supervisor-davidd" checked/>
+      <span>🧠 Claude supervisor (vetoes weak signals — needs API key)</span>
+    </div>
+    <button class="btn btn-start" id="start-davidd" onclick="startBot('davidd')">▶ START SYSTEMATIC BOT</button>
+    <div style="border-top:1px dashed var(--border);margin:12px 0 10px;"></div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--accent2);font-weight:700;margin-bottom:6px;">🔁 SELF-OPTIMIZE (Claude + backtester loop)</div>
+    <div class="row">
+      <div class="field"><label>Iterations</label><input type="number" id="opt-iters" value="15" min="3" max="30"/></div>
+      <div class="field" style="flex:2;display:flex;align-items:flex-end;">
+        <button class="btn" id="opt-start" onclick="startOptimize()" style="background:rgba(61,127,255,.15);border:1px solid var(--accent2);color:var(--accent2);">🔁 RUN OPTIMIZATION</button>
+      </div>
+    </div>
+    <div id="opt-progress" style="display:none;font-family:var(--font-mono);font-size:10px;color:var(--warn);margin-bottom:6px;"></div>
+    <div id="opt-results" style="font-family:var(--font-mono);font-size:9px;color:var(--muted);line-height:1.6;"></div>
+    <button class="btn" id="opt-apply" onclick="applyBest()" style="display:none;margin-top:6px;background:var(--accent);color:#06281f;">✅ APPLY BEST PARAMS TO BOT</button>
+    <button class="btn btn-stop" id="stop-davidd" onclick="stopBot('davidd')">■ STOP</button>
+    <div class="stats" id="stats-davidd" style="display:none;">
+      <span>P&amp;L <b id="pnl-davidd">$0.00</b></span>
+      <span>Position <b id="pos-davidd">none</b></span>
+    </div>
+    <div class="decisions" id="dec-davidd"></div>
+  </div>
+
+  <div class="note">
+    Both bots run 24/7 on the server. Paper mode = real decisions, simulated fills — recommended
+    until you've watched a few days of decision quality. Kill switch: -50% of allocation.
+    Bots reset on server restarts (same as trigger bots).
+  </div>
+</div>
+
+<script>
+const PROXY = 'https://mexc-proxy-production.up.railway.app';
+let authToken = localStorage.getItem('mexc_token') || null;
+const modes = { pattern:'paper', davidd:'paper' };
+
+function authHeaders(extra){ return Object.assign({'X-Auth': authToken||''}, extra||{}); }
+
+async function doLogin(){
+  const pw = document.getElementById('pw').value;
+  try{
+    const r = await fetch(PROXY+'/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
+    if(!r.ok){ alert('Wrong password'); return; }
+    const d = await r.json();
+    authToken = d.token;
+    localStorage.setItem('mexc_token', authToken);
+    document.getElementById('loginOverlay').style.display='none';
+    pollAll();
+  }catch(e){ alert('Server unreachable: '+e.message); }
+}
+
+function setMode(bot, mode){
+  modes[bot] = mode;
+  document.getElementById(`mode-${bot}-paper`).className = 'mode-btn' + (mode==='paper'?' paper-active':'');
+  document.getElementById(`mode-${bot}-live`).className  = 'mode-btn' + (mode==='live'?' live-active':'');
+}
+
+async function startBot(name){
+  const paper = modes[name]==='paper';
+  const allocation = parseFloat(document.getElementById('alloc-'+name).value)||100;
+  if(!paper && !confirm(`⚠️ LIVE MODE — the ${name} bot will trade REAL money ($${allocation} allocation). Treat it as money you can lose entirely. Continue?`)) return;
+  const body = { allocation, paper, decisionTf: document.getElementById('tf-'+name).value };
+  if(name==='pattern') body.lineSource = document.getElementById('lines-pattern').value;
+  if(name==='davidd')  body.aiSupervisor = document.getElementById('supervisor-davidd').checked;
+  try{
+    const r = await fetch(`${PROXY}/ai2/${name}/start`,{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
+    if(r.status===401){ relogin(); return; }
+    const d = await r.json();
+    if(d.error) alert(d.error);
+    pollBot(name);
+  }catch(e){ alert('Failed: '+e.message); }
+}
+
+async function stopBot(name){
+  if(!confirm(`Stop the ${name} bot? Any open position stays as-is.`)) return;
+  await fetch(`${PROXY}/ai2/${name}/stop`,{method:'POST',headers:authHeaders()}).catch(()=>{});
+  pollBot(name);
+}
+
+function relogin(){
+  authToken=null; localStorage.removeItem('mexc_token');
+  document.getElementById('loginOverlay').style.display='flex';
+}
+
+async function pollBot(name){
+  if(!authToken) return;
+  try{
+    const r = await fetch(`${PROXY}/ai2/${name}/status`,{headers:authHeaders()});
+    if(r.status===401) return relogin();
+    if(!r.ok) return;
+    const d = await r.json();
+    const pill = document.getElementById('pill-'+name);
+    if(d.enabled){
+      pill.className = 'pill ' + (d.paper?'pill-paper':'pill-live');
+      pill.textContent = d.paper?'PAPER':'LIVE';
+    } else {
+      pill.className='pill pill-off';
+      pill.textContent = (name==='pattern' && !d.hasApiKey) ? 'NO API KEY' : 'OFF';
+    }
+    document.getElementById('start-'+name).style.display = d.enabled?'none':'block';
+    document.getElementById('stop-'+name).style.display  = d.enabled?'block':'none';
+    const stats = document.getElementById('stats-'+name);
+    stats.style.display = (d.enabled || d.realizedPnl!==0)?'flex':'none';
+    const pnlEl = document.getElementById('pnl-'+name);
+    pnlEl.textContent = `${d.realizedPnl>=0?'+':''}$${(d.realizedPnl||0).toFixed(2)}${d.paper?' 📝':''}`;
+    pnlEl.style.color = d.realizedPnl>0?'var(--accent)':d.realizedPnl<0?'var(--danger)':'var(--text)';
+    document.getElementById('pos-'+name).textContent = d.position
+      ? `${d.position.side} @ $${d.position.entryPrice}` : 'none';
+
+    const box = document.getElementById('dec-'+name);
+    if(d.decisions && d.decisions.length){
+      box.innerHTML = d.decisions.slice().reverse().map(x=>`
+        <div class="dec">
+          <div class="dec-top">
+            <span class="dec-action dec-${x.action}">${x.action}${x.pattern&&x.pattern!=='none'?` <span class="dec-pattern">[${x.pattern}]</span>`:''}</span>
+            <span class="dec-time">${new Date(x.t).toLocaleString()}</span>
+          </div>
+          <div class="dec-body">${x.reasoning||''}</div>
+        </div>`).join('');
+    }
+  }catch(e){}
+}
+
+async function startOptimize(){
+  const iterations = parseInt(document.getElementById('opt-iters').value)||15;
+  if(!confirm(`Run ${iterations} optimization iterations? Claude will propose parameters, the server backtests each on ~6000 candles of history, and Claude learns from results. Costs ~$${(iterations*0.015).toFixed(2)} in API credits. Takes ~${Math.ceil(iterations*0.4)} min.`)) return;
+  const r = await fetch(PROXY+'/ai2/optimize/start',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({iterations, symbol:'BTC_USDT', tf:document.getElementById('tf-davidd').value})});
+  const d = await r.json();
+  if(d.error) alert(d.error);
+  pollOptimizer();
+}
+
+async function applyBest(){
+  if(!confirm('Apply the best parameters to the live Systematic bot? They take effect on its next decision.')) return;
+  const r = await fetch(PROXY+'/ai2/optimize/apply',{method:'POST',headers:authHeaders()});
+  const d = await r.json();
+  if(d.applied) alert('Applied: '+JSON.stringify(d.params));
+}
+
+async function pollOptimizer(){
+  if(!authToken) return;
+  try{
+    const r = await fetch(PROXY+'/ai2/optimize/status',{headers:authHeaders()});
+    if(!r.ok) return;
+    const d = await r.json();
+    const prog = document.getElementById('opt-progress');
+    const resBox = document.getElementById('opt-results');
+    const applyBtn = document.getElementById('opt-apply');
+    if(d.running){
+      prog.style.display='block';
+      prog.textContent = `⏳ Running… iteration ${d.iter}/${d.total}`;
+    } else {
+      prog.style.display = d.best ? 'none' : prog.style.display;
+    }
+    if(d.top3 && d.top3.length){
+      resBox.innerHTML = '<b style="color:var(--text)">Leaderboard:</b><br>' + d.top3.map((x,i)=>
+        `${i+1}. net <b style="color:${x.netPct>=0?'var(--accent)':'var(--danger)'}">${x.netPct}%</b> · PF ${x.profitFactor} · DD ${x.maxDdPct}% · ${x.trades} trades<br>&nbsp;&nbsp;&nbsp;EMA ${x.params.emaFast}/${x.params.emaSlow} ADX>${x.params.adxMin} RSI ${x.params.rsiLow}-${x.params.rsiHigh} SL ${x.params.atrSL}×ATR TP ${x.params.atrTP}×ATR`
+      ).join('<br>');
+      applyBtn.style.display = d.best && !d.running ? 'block' : 'none';
+    }
+  }catch(e){}
+}
+setInterval(pollOptimizer, 8000);
+
+function pollAll(){ pollBot('pattern'); pollBot('davidd'); pollOptimizer(); }
+setInterval(pollAll, 12000);
+
+// session restore
+if(authToken){
+  document.getElementById('loginOverlay').style.display='none';
+  pollAll();
+}
+document.getElementById('pw').addEventListener('keydown',e=>{ if(e.key==='Enter') doLogin(); });
+</script>
+</body>
+</html>
