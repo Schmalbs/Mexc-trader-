@@ -1232,9 +1232,9 @@ function renderArmedBots(){
         <span style="color:var(--accent);font-weight:700;">BOT #${b.id}</span>
         <span style="color:var(--muted);"> ${b.dir} ${src} [${b.trigTf}] ${b.leverage>1?b.leverage+'×':''}</span>${tradeTag}
       </div>
-      <div style="display:flex;gap:4px;flex-shrink:0;">
-        ${!b.activeTrade ? `<button onclick="editBot(${b.id})" style="background:none;border:1px solid var(--accent2);color:var(--accent2);border-radius:3px;font-size:9px;padding:2px 6px;cursor:pointer;">✎</button>` : ''}
-        <button onclick="disarmBot(${b.id})" style="background:none;border:1px solid var(--danger);color:var(--danger);border-radius:3px;font-size:9px;padding:2px 6px;cursor:pointer;">✕</button>
+      <div style="display:flex;gap:12px;flex-shrink:0;">
+        ${!b.activeTrade ? `<button onclick="editBot(${b.id})" style="background:none;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;font-size:11px;padding:4px 9px;cursor:pointer;">✎</button>` : ''}
+        <button onclick="disarmBot(${b.id})" style="background:none;border:1px solid var(--danger);color:var(--danger);border-radius:4px;font-size:11px;padding:4px 9px;cursor:pointer;">✕</button>
       </div>
     </div>`;
   }).join('');
@@ -2697,7 +2697,20 @@ ${editingBotId!=null ? 'This MODIFIES the existing bot — no new bot is added.'
   log(`Bot armed on ${trendLines.length} line(s)`,'ok');
 }
 async function disarmBot(id){
-  const msg = id != null ? `Disarm Bot #${id}?` : 'Disarm ALL bots? They will stop watching for entries.';
+  let msg;
+  if(id != null){
+    const b = serverBots.find(x=>x.id===id);
+    if(b){
+      const trig = b.triggerSource==='price' ? `price $${b.manualPrice}`
+        : (b.triggerLevel!=null ? `$${(+b.triggerLevel).toFixed(2)}` : `line #${b.selectedLineId}`);
+      const size = b.config&&b.config.qtyUsdt ? `$${b.config.qtyUsdt}` : `${b.qty} contracts`;
+      msg = `DISARM BOT #${id}?\n\n${b.dir==='above'?'BUY above':'SELL below'} ${trig} [${b.trigTf}]\n${size} at ${b.leverage}×\n\nIt will stop watching for entries and be removed from re-arm memory.`;
+    } else {
+      msg = `Disarm Bot #${id}?`;
+    }
+  } else {
+    msg = 'Disarm ALL bots? They will stop watching for entries and re-arm memory will be wiped.';
+  }
   if(!confirm(msg)) return;
   // Intentional disarm → forget the config so re-arm won't offer it back
   if(id != null){
@@ -3188,7 +3201,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.15';
+const BUILD = '2026-06-12.16';
 
 function handleAuthFailure(){
   // Server restarted → session token died. Stop pretending we're connected.
