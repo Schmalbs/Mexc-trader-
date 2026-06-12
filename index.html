@@ -615,7 +615,7 @@
         <div class="inline-row">
           <div class="form-row">
             <div class="form-label">Leverage</div>
-            <select id="botLeverage">
+            <select id="botLeverage" onchange="updateSlHint()">
               <option value="1">1× (spot)</option>
               <option value="2">2×</option>
               <option value="3">3×</option>
@@ -660,19 +660,23 @@
         <input type="hidden" id="botTpPrice" value=""/>
         <div class="sub-label">Stop Loss</div>
         <div class="exit-type-toggle">
-          <button class="ett-btn active-pct" id="botSlTypePct" onclick="setExitType('botSl','pct')">% from entry</button>
-          <button class="ett-btn"            id="botSlTypePrice" onclick="setExitType('botSl','price')">Exact price</button>
+          <button class="ett-btn active-pct" id="botSlTypePct" onclick="setExitType('botSl','pct')">% entry</button>
+          <button class="ett-btn"            id="botSlTypeMargin" onclick="setExitType('botSl','margin')">% margin</button>
+          <button class="ett-btn"            id="botSlTypePrice" onclick="setExitType('botSl','price')">Price</button>
         </div>
         <div class="inline-row">
           <div class="form-row">
             <div class="form-label" id="botSlValLabel">SL %</div>
-            <input type="number" id="slPct" value="1" step="0.1" min="0"/>
-            <input type="number" id="botSlPrice" placeholder="e.g. 42000" step="0.01" min="0" style="display:none"/>
+            <input type="number" id="slPct" value="1" step="0.1" min="0" oninput="updateSlHint()"/>
+            <input type="number" id="botSlPrice" placeholder="e.g. 42000" step="0.01" min="0" style="display:none" oninput="updateSlHint()"/>
           </div>
           <div class="form-row">
             <div class="form-label">Trigger</div>
             <select id="slMode"><option value="price">Price hit</option><option value="candle">Candle close</option></select>
           </div>
+        </div>
+        <div id="botSlHint" style="font-family:var(--font-mono);font-size:9px;color:var(--warn);margin:-2px 0 6px;"></div>
+        <div class="inline-row" style="display:none">
         </div>
         <div class="form-row" id="slCandleRow" style="display:none">
           <div class="form-label">SL Candle TF</div>
@@ -842,11 +846,12 @@ function toggleHeaderPnlMode(){
 
 function setExitType(id, type){
   exitTypeState[id] = type;
-  const pctBtn   = document.getElementById(id+'TypePct');
-  const priceBtn = document.getElementById(id+'TypePrice');
-  pctBtn.className   = 'ett-btn' + (type==='pct'  ? ' active-pct'   : '');
+  const pctBtn    = document.getElementById(id+'TypePct');
+  const priceBtn  = document.getElementById(id+'TypePrice');
+  const marginBtn = document.getElementById(id+'TypeMargin'); // only exists for botSl
+  pctBtn.className   = 'ett-btn' + (type==='pct'   ? ' active-pct'   : '');
   priceBtn.className = 'ett-btn' + (type==='price' ? ' active-price' : '');
-  // Map id to the correct input/label elements
+  if(marginBtn) marginBtn.className = 'ett-btn' + (type==='margin' ? ' active-pct' : '');
   const map = {
     manualTp: { pctInput:'manualTpPct', priceInput:'manualTpPrice', label:'manualTpValLabel', pctLabel:'TP %', priceLabel:'TP Price' },
     manualSl: { pctInput:'manualSlPct', priceInput:'manualSlPrice', label:'manualSlValLabel', pctLabel:'SL %', priceLabel:'SL Price' },
@@ -854,9 +859,36 @@ function setExitType(id, type){
     botSl:    { pctInput:'slPct',       priceInput:'botSlPrice',    label:'botSlValLabel',    pctLabel:'SL %', priceLabel:'SL Price' },
   };
   const m = map[id];
-  document.getElementById(m.pctInput).style.display   = type==='pct'  ?'block':'none';
+  // 'margin' mode shares the pct input — the % is of margin, not price
+  document.getElementById(m.pctInput).style.display   = (type==='pct'||type==='margin') ?'block':'none';
   document.getElementById(m.priceInput).style.display = type==='price'?'block':'none';
-  document.getElementById(m.label).textContent = type==='pct' ? m.pctLabel : m.priceLabel;
+  document.getElementById(m.label).textContent =
+    type==='price' ? m.priceLabel :
+    type==='margin' ? 'SL % of margin' : m.pctLabel;
+  if(id==='botSl') updateSlHint();
+}
+
+function updateSlHint(){
+  const el = document.getElementById('botSlHint');
+  if(!el) return;
+  const lev = parseInt(document.getElementById('botLeverage').value)||1;
+  const mode = exitTypeState.botSl;
+  const p = lastPrice||0;
+  let txt = '';
+  if(mode==='pct'){
+    const movePct = parseFloat(document.getElementById('slPct').value)||0;
+    txt = `≈ ${(movePct*lev).toFixed(1)}% of margin at ${lev}×`;
+  } else if(mode==='margin'){
+    const marginPct = parseFloat(document.getElementById('slPct').value)||0;
+    txt = `≈ ${(marginPct/lev).toFixed(2)}% price move at ${lev}×`;
+  } else if(mode==='price' && p>0){
+    const slP = parseFloat(document.getElementById('botSlPrice').value)||0;
+    if(slP>0){
+      const movePct = Math.abs(p-slP)/p*100;
+      txt = `≈ ${movePct.toFixed(2)}% price move = ${(movePct*lev).toFixed(1)}% of margin at ${lev}×`;
+    }
+  }
+  el.textContent = txt;
 }
 
 function resolveExitPrice(id, entryPrice, side){
@@ -897,6 +929,7 @@ function applyColorToSelectedLine(color){
   if(!selectedLine) return;
   selectedLine.color = color;
   selectedLine.series.applyOptions({color});
+  saveLines();
   // update the badge label in the chart overlay
   const lbl = document.getElementById('linelabel-'+selectedLine.id);
   if(lbl){
@@ -1092,7 +1125,7 @@ function removeTpLevel(i){
 }
 
 // init
-document.addEventListener('DOMContentLoaded', ()=>{ renderTpLevels(); });
+document.addEventListener('DOMContentLoaded', ()=>{ renderTpLevels(); updateSlHint(); });
 
 // ── SERVER BOT STATUS POLLING ──
 let lastServerLogCount = 0;
@@ -1368,7 +1401,10 @@ function initChart(){
   });
 
   // Keep selection handles glued to the line when the chart pans/zooms
-  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>{ if(selectedLine) updateLineHandles(); });
+  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>{
+    if(selectedLine) updateLineHandles();
+    repositionCrosshair();
+  });
 
   // ── DRAWING: offset crosshair above finger + Lock button ─
   // Touch moves the chart crosshair naturally (no preventDefault)
@@ -1394,7 +1430,8 @@ function initChart(){
       }
       return; // otherwise let the chart pan normally
     }
-    // Draw tool active — block chart scroll for crosshair placement
+    // Draw tool active — block chart scroll, record tap start for tap-to-place
+    tapStart = { x: tx, y: ty, t: Date.now(), moved: false };
     e.preventDefault();
     setChartScroll(false);
   }, {passive:false});
@@ -1415,6 +1452,7 @@ function initChart(){
     // Visual crosshair: offset ABOVE finger
     const cx = touch.clientX - rect.left;
     const cy = touch.clientY - rect.top - CROSSHAIR_OFFSET;
+    if(tapStart && Math.hypot(cx-tapStart.x, (touch.clientY-rect.top)-tapStart.y) > 12) tapStart.moved = true;
     if(cy < 0) return;
 
     const price = candleSeries.coordinateToPrice(cy);
@@ -1458,8 +1496,22 @@ function initChart(){
   // Re-enable scroll when finger lifts
   chartEl.addEventListener('touchend', e=>{
     if(lineDrag){ lineDragEnd(); setChartScroll(true); return; }
-    if(drawTool) e.preventDefault();
-    // Re-enable chart scroll so user can still pan between touches
+    if(drawTool){
+      e.preventDefault();
+      // TradingView-style: a quick tap (no drag) places the point right there
+      if(tapStart && !tapStart.moved && Date.now()-tapStart.t < 450){
+        const touch = e.changedTouches[0];
+        const rect  = chartEl.getBoundingClientRect();
+        const cx = touch.clientX - rect.left;
+        const cy = touch.clientY - rect.top; // exact tap point — no offset
+        const price = candleSeries.coordinateToPrice(cy);
+        if(price != null){
+          crosshairPt = {time: xToTime(cx), price};
+          tapPlacePoint();
+        }
+      }
+      tapStart = null;
+    }
     setChartScroll(true);
   }, {passive:false});
 
@@ -1551,6 +1603,12 @@ async function loadCandles(attempt){
     updatePrice(candles[candles.length-1].close);
     openDay = candles[0].open;
     log(`Loaded ${candles.length} candles for ${currentSymbol}`,'ok');
+    // stale crosshair from previous TF would lie — hide it
+    try{ document.getElementById('drawCrosshair').style.display='none'; crosshairVisible=false; }catch(e){}
+    rebuildAllLines(); // re-align lines to this timeframe's grid
+    restoreLines();    // bring back saved lines (only when none drawn yet)
+    updateCandleTimer();
+    updateSlHint();
     fetchDailyOpen();
     startPricePoll();
   }catch(e){
@@ -1694,7 +1752,9 @@ function updateCandleTimer(){
   // Find when the last candle opened
   const lastCandle = candles[candles.length-1];
   if(!lastCandle){ el.textContent='⏱ --:--'; return; }
-  const nextClose = (lastCandle.time + step) * 1000;
+  let t = lastCandle.time;
+  if(t > 1e12) t = Math.floor(t/1000); // defensive: ms → s
+  const nextClose = (t + step) * 1000;
   const diff = Math.max(0, nextClose - Date.now());
   const m = Math.floor(diff/60000);
   const s = Math.floor((diff%60000)/1000);
@@ -1734,16 +1794,11 @@ function setDrawTool(tool){
   showInstruction('');
   document.getElementById('drawDot1').style.display='none';
   if(!tool && chart) setChartScroll(true);
-  // Show/hide lock button
+  // Lock button retired — tap-to-place (TradingView style) replaces it
   const btn = document.getElementById('lockPointBtn');
-  if(btn){
-    if(tool){
-      btn.style.display = 'block';
-      btn.style.background = 'var(--warn)';
-      btn.textContent = tool==='horiz' ? 'Lock Horizontal Line' : 'Lock Point 1';
-    } else {
-      btn.style.display = 'none';
-    }
+  if(btn) btn.style.display = 'none';
+  if(tool){
+    showInstruction(tool==='horiz' ? 'Tap the chart to place the line' : 'Tap to place point 1');
   }
   // Update button states
   ['Trend','Horiz'].forEach(t=>{
@@ -1874,6 +1929,7 @@ function addTrendLine(p1,p2){
   const s=chart.addLineSeries({color,lineWidth:2,lastValueVisible:false,priceLineVisible:false});
   s.setData(buildLinePoints(p1,p2));
   trendLines.push({id,p1,p2,series:s,armed:false,color});
+  saveLines();
   if(savedR){ try{ chart.timeScale().setVisibleLogicalRange(savedR); }catch(e){} }
   renderTlList();
   updateLineTriggerSelect();
@@ -1896,6 +1952,7 @@ function addHorizLine(price){
     s.setData([{time:now-3600,value:price},{time:now,value:price}]);
   }
   trendLines.push({id, p1:{time:0,price}, p2:{time:1,price}, series:s, armed:false, color, isHoriz:true, horizPrice:price});
+  saveLines();
   renderTlList();
   updateLineTriggerSelect();
   addLineLabel(id, color);
@@ -1909,6 +1966,69 @@ function addHorizLine(price){
 let selectedLine = null;
 let lineDrag = null; // {mode:'body'|'p1'|'p2', lastPrice, lastTime}
 let linesLocked = false;
+
+function saveLines(){
+  const data = {
+    lines: trendLines.map(t=>({id:t.id, p1:t.p1, p2:t.p2, isHoriz:!!t.isHoriz, horizPrice:t.horizPrice, color:t.color})),
+  };
+  // Local copy (works offline / before login)
+  try{ localStorage.setItem('mexc_lines_'+currentSymbol, JSON.stringify(data)); }catch(e){}
+  // Server copy (syncs across devices)
+  if(authToken){
+    fetch(PROXY+'/lines/save',{
+      method:'POST',
+      headers:authHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({symbol: currentSymbol, data})
+    }).catch(()=>{});
+  }
+}
+
+async function restoreLines(){
+  if(trendLines.length) return; // lines already on chart (e.g. TF switch)
+  let saved = null;
+  // Server first (cross-device), local fallback
+  if(authToken){
+    try{
+      const r = await fetch(PROXY+`/lines/load?symbol=${currentSymbol}`,{headers:authHeaders()});
+      if(r.ok){ const d = await r.json(); if(d && d.lines && d.lines.length) saved = d; }
+    }catch(e){}
+  }
+  if(!saved){
+    try{ saved = JSON.parse(localStorage.getItem('mexc_lines_'+currentSymbol)||'null'); }catch(e){}
+  }
+  if(!saved || !saved.lines || !saved.lines.length) return;
+  if(trendLines.length) return; // re-check after await — a draw may have happened
+  for(const L of saved.lines){
+    try{
+      const s = chart.addLineSeries({color:L.color||'#ffffff', lineWidth:2, lastValueVisible:true, priceLineVisible:false});
+      const tl = {id:L.id, p1:L.p1, p2:L.p2, isHoriz:!!L.isHoriz, horizPrice:L.horizPrice, series:s, armed:false, color:L.color||'#ffffff'};
+      trendLines.push(tl);
+      if(tl.isHoriz) rebuildHorizData(tl);
+      else s.setData(buildLinePoints(tl.p1, tl.p2));
+      addLineLabel(tl.id, tl.color);
+      tlIdCounter = Math.max(tlIdCounter, tl.id||0);
+    }catch(e){}
+  }
+  renderTlList();
+  updateLineTriggerSelect();
+  log(`Restored ${saved.lines.length} saved line(s) ✓`,'ok');
+}
+
+function rebuildAllLines(){
+  // Lines carry grid-aligned data for the TF they were drawn on. After a
+  // timeframe switch the old grid pollutes the new time scale with off-grid
+  // slots, corrupting all coordinates. Rebuild everything on the new grid.
+  for(const tl of trendLines){
+    try{
+      if(tl.isHoriz){
+        rebuildHorizData(tl);
+      } else {
+        tl.series.setData(buildLinePoints(tl.p1, tl.p2));
+      }
+    }catch(e){}
+  }
+  updateLineHandles();
+}
 
 function rebuildHorizData(tl){
   const ptsStep = TF_SECONDS[currentTf]||900;
@@ -2086,6 +2206,7 @@ function toggleLinesLock(){
 function lineDragEnd(){
   if(!lineDrag) return;
   lineDrag = null;
+  saveLines();
   renderTlList();
   updateLineHandles();
   if(botArmed) log('Line moved — re-arm bot(s) to use the new position','warn');
@@ -2097,6 +2218,7 @@ function removeTrendLine(id){
   if(selectedLine && selectedLine.id===id){ selectedLine=null; updateLineHandles(); }
   try{chart.removeSeries(trendLines[idx].series);}catch{}
   trendLines.splice(idx,1);
+  saveLines();
   removeLineLabel(id);
   renderTlList();
   updateLineTriggerSelect();
@@ -2105,6 +2227,7 @@ function clearAllLines(){
   selectedLine=null; updateLineHandles();
   trendLines.forEach(tl=>{try{chart.removeSeries(tl.series);}catch{}; removeLineLabel(tl.id);});
   trendLines=[];
+  saveLines();
   renderTlList();
   updateLineTriggerSelect();
 }
@@ -2274,6 +2397,50 @@ async function closeFraction(fraction){
   }catch(e){ log(`Close failed: ${e.message}`,'err'); }
 }
 
+async function adoptPosition(symbol, positionType, vol, entry, leverage){
+  const side = positionType===1 ? 'BUY' : 'SELL';
+  const beChecked = document.getElementById('breakEvenOnTp').checked;
+  const slType = exitTypeState.botSl;
+  const slValue = slType==='price' ? null : parseFloat(document.getElementById('slPct').value)||1;
+  const slPrice = slType==='price' ? parseFloat(document.getElementById('botSlPrice').value)||0 : 0;
+
+  const tpDesc = tpLevels.map((t,i)=>t.type==='price'?`TP${i+1}:$${t.price}`:`TP${i+1}:+${t.pct}%`).join(' ');
+  if(!confirm(`Adopt this ${side} position into bot management?
+
+Entry: $${entry} | ${vol} contracts | ${leverage}×
+${tpDesc}
+SL: ${slType==='price' ? '$'+slPrice : slValue+'% '+(slType==='margin'?'of margin':'price move')}
+Break-even on TP: ${beChecked?'YES':'no'}
+A real SL order will be placed on MEXC.
+
+The server will manage TP/SL exits from now on.`)) return;
+
+  try{
+    const r = await fetch(PROXY+'/trade/adopt',{
+      method:'POST',
+      headers:authHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({
+        symbol, side, qty: vol, entryPrice: entry, leverage,
+        tpLevels: tpLevels.map(t=>({type:t.type||'pct', pct:t.pct, price:t.price, size:t.size})),
+        breakEvenOnHit: beChecked,
+        tpMode: document.getElementById('tpMode').value,
+        tpTf: TF_MAP[document.getElementById('tpTf').value]||'Min15',
+        slMode: document.getElementById('slMode').value,
+        slTf: TF_MAP[document.getElementById('slTf').value]||'Min15',
+        slType, slValue, slPrice,
+        placeRealSl: true,
+      })
+    });
+    const d = await r.json();
+    if(d.adopted){
+      log(`🤝 Position adopted as Bot #${d.botId} — server now manages TP/SL ✓`,'ok');
+      pollBotStatus();
+    } else {
+      log(`Adopt failed: ${d.error||JSON.stringify(d)}`,'err');
+    }
+  }catch(e){ log(`Adopt failed: ${e.message}`,'err'); }
+}
+
 async function closeMexcPosition(symbol, positionType, totalVol, fraction, leverage){
   if(!authToken){ log('Log in first.','err'); return; }
   const vol = fraction>=0.999 ? totalVol : Math.max(1, Math.floor(totalVol*fraction));
@@ -2351,6 +2518,7 @@ async function armBot(){
       value: exitTypeState.botSl==='price' ? parseFloat(document.getElementById('botSlPrice').value) : parseFloat(document.getElementById('slPct').value),
       tf: TF_MAP[document.getElementById('slTf').value]||'Min15',
     },
+    // margin-based SL needs leverage to convert: priceMove% = marginPct / leverage
   };
 
   // ── CONFIRMATION — full summary before any bot goes live ──
@@ -2369,7 +2537,10 @@ async function armBot(){
   ).join(' | ');
   const slLabel = exitTypeState.botSl==='price'
     ? `$${document.getElementById('botSlPrice').value||'?'}`
-    : `${document.getElementById('slPct').value||'?'}%`;
+    : exitTypeState.botSl==='margin'
+    ? `${document.getElementById('slPct').value||'?'}% of margin (= ${(parseFloat(document.getElementById('slPct').value||0)/(parseInt(document.getElementById('botLeverage')?.value)||cfgLeverageFallback())).toFixed(2)}% price move)`
+    : `${document.getElementById('slPct').value||'?'}% price move`;
+  function cfgLeverageFallback(){ try{ return parseInt(document.getElementById('leverage').value)||1; }catch(e){ return 1; } }
 
   const summary =
 `ARM THIS BOT?
@@ -2641,6 +2812,16 @@ function renderTradesPanel(){
         <button class="tc-close-btn" onclick="closeMexcPosition('${pos.symbol}',${pos.positionType},${vol},2/3,${lev})">Sell ⅔</button>
         <button class="tc-close-btn full" onclick="closeMexcPosition('${pos.symbol}',${pos.positionType},${vol},1,${lev})">Close All</button>
       </div>
+      ${(()=>{
+        const mgr = serverBots.find(b=>b.activeTrade && b.symbol===pos.symbol &&
+          b.activeTrade.side===(isLong?'BUY':'SELL'));
+        return mgr
+          ? `<div style="width:100%;margin-top:4px;text-align:center;color:var(--accent);font-family:var(--font-mono);font-size:9px;padding:4px;border:1px dashed var(--accent);border-radius:4px;">✓ Managed by Bot #${mgr.id}</div>`
+          : `<button onclick="adoptPosition('${pos.symbol}',${pos.positionType},${vol},${entry},${lev})"
+              style="width:100%;margin-top:4px;background:rgba(0,200,150,.12);border:1px solid var(--accent);color:var(--accent);border-radius:4px;padding:5px;font-family:var(--font-mono);font-size:10px;cursor:pointer;">
+              🤝 Adopt — manage with current TP/SL settings
+            </button>`;
+      })()}
     </div>`;
   }
 
@@ -2876,6 +3057,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
+const BUILD = '2026-06-12.1';
 const logHistory = []; // full copyable history
 
 function log(msg,type=''){
@@ -2901,6 +3083,7 @@ async function copyFullLog(){
 
   const text =
 `═══ MEXC TREND TRADER DIAGNOSTIC LOG ═══
+Build: ${BUILD}
 Generated: ${new Date().toISOString()}
 App URL: ${location.href}
 Symbol: ${currentSymbol} | TF: ${currentTf}
@@ -2930,6 +3113,62 @@ ${logHistory.join('\n')}`;
 }
 
 // ── GLOBAL DRAWING HELPERS ────────────────────
+function repositionCrosshair(){
+  // The crosshair is anchored to (time, price). When the chart scrolls,
+  // zooms, or rescales, re-derive its pixel position so the label always
+  // matches where the crosshair actually points.
+  if(!crosshairVisible || !crosshairPt) return;
+  const dc = document.getElementById('drawCrosshair');
+  if(!dc || dc.style.display==='none') return;
+  const x = timeToX(crosshairPt.time);
+  const y = candleSeries.priceToCoordinate(crosshairPt.price);
+  if(x==null || y==null){ dc.style.display='none'; crosshairVisible=false; return; }
+  document.getElementById('dcVertical').style.left  = x+'px';
+  document.getElementById('dcHorizontal').style.top = y+'px';
+  document.getElementById('dcDot').style.left = x+'px';
+  document.getElementById('dcDot').style.top  = y+'px';
+  const lbl = document.getElementById('dcLabel');
+  lbl.style.top = y+'px'; lbl.style.left = (x+10)+'px';
+}
+setInterval(repositionCrosshair, 400); // covers price-scale autoscale shifts
+
+let tapStart = null;
+
+function tapPlacePoint(){
+  if(!drawTool || !crosshairPt) return;
+  navigator.vibrate&&navigator.vibrate(35);
+
+  if(drawTool==='horiz'){
+    addHorizLine(crosshairPt.price);
+    document.getElementById('drawCrosshair').style.display='none';
+    crosshairVisible = false;
+    showInstruction('');
+    setDrawTool(null);
+    return;
+  }
+
+  if(drawTool==='trend'){
+    if(drawStep===0){
+      drawP1 = crosshairPt;
+      drawStep = 1;
+      showInstruction('Point 1 ✓ — drag to aim, tap to place point 2');
+      // show preview immediately anchored at p1
+      updatePreview({time: drawP1.time, price: drawP1.price});
+      log(`Point 1 placed @ $${drawP1.price.toFixed(4)}`,'ok');
+    } else {
+      navigator.vibrate&&navigator.vibrate([30,20,60]);
+      removePreview();
+      addTrendLine(drawP1, crosshairPt);
+      document.getElementById('drawCrosshair').style.display='none';
+      crosshairVisible = false;
+      showInstruction('Line drawn ✓');
+      setTimeout(()=>showInstruction(''),1500);
+      drawStep=0; drawP1=null;
+      setDrawTool(null);
+    }
+  }
+}
+
 function lockPoint(){
   if(!drawTool || !crosshairPt) return;
   navigator.vibrate&&navigator.vibrate(40);
