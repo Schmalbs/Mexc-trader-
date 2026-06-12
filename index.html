@@ -1501,16 +1501,26 @@ function initChart(){
     if(lineDrag){ lineDragEnd(); setChartScroll(true); return; }
     if(drawTool){
       e.preventDefault();
-      // TradingView-style: a quick tap (no drag) places the point right there
+      // TradingView-style tap-to-place. The point ALWAYS goes where the
+      // crosshair is (or would be): if you dragged to aim, the tap confirms
+      // the aimed crosshair; a fresh tap places at the crosshair offset
+      // above your finger — same mental model either way.
       if(tapStart && !tapStart.moved && Date.now()-tapStart.t < 450){
-        const touch = e.changedTouches[0];
-        const rect  = chartEl.getBoundingClientRect();
-        const cx = touch.clientX - rect.left;
-        const cy = touch.clientY - rect.top; // exact tap point — no offset
-        const price = candleSeries.coordinateToPrice(cy);
-        if(price != null){
-          crosshairPt = {time: xToTime(cx), price};
+        if(crosshairVisible && crosshairPt){
+          // confirm the previously aimed crosshair position
           tapPlacePoint();
+        } else {
+          const touch = e.changedTouches[0];
+          const rect  = chartEl.getBoundingClientRect();
+          const cx = touch.clientX - rect.left;
+          const cy = touch.clientY - rect.top - CROSSHAIR_OFFSET;
+          if(cy >= 0){
+            const price = candleSeries.coordinateToPrice(cy);
+            if(price != null){
+              crosshairPt = {time: xToTime(cx), price};
+              tapPlacePoint();
+            }
+          }
         }
       }
       tapStart = null;
@@ -2075,11 +2085,9 @@ function selectLine(tl){
   selectedLine = tl;
   if(tl){ try{ tl.series.applyOptions({lineWidth:4}); }catch(e){} }
 
+  // Chart delete button retired — use the ✕ in the Lines panel
   const delBtn = document.getElementById('deleteLineBtn');
-  if(delBtn){
-    delBtn.style.display = tl ? 'block' : 'none';
-    if(tl) delBtn.textContent = `🗑 Delete #${tl.id}`;
-  }
+  if(delBtn) delBtn.style.display = 'none';
 
   // Sync colour palette to show this line's current colour
   if(tl){
@@ -3060,7 +3068,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.2';
+const BUILD = '2026-06-12.3';
 
 function handleAuthFailure(){
   // Server restarted → session token died. Stop pretending we're connected.
@@ -3171,8 +3179,11 @@ function tapPlacePoint(){
     if(drawStep===0){
       drawP1 = crosshairPt;
       drawStep = 1;
+      // Clear the crosshair so the next tap aims fresh (prevents a
+      // double-tap placing both points at the same spot)
+      crosshairPt = null; crosshairVisible = false;
+      document.getElementById('drawCrosshair').style.display = 'none';
       showInstruction('Point 1 ✓ — drag to aim, tap to place point 2');
-      // show preview immediately anchored at p1
       updatePreview({time: drawP1.time, price: drawP1.price});
       log(`Point 1 placed @ $${drawP1.price.toFixed(4)}`,'ok');
     } else {
@@ -3237,10 +3248,9 @@ function hideCrosshair(){
 }
 
 function showInstruction(msg){
+  // Instructions retired — the flow is self-evident now
   const el = document.getElementById('drawInstruction');
-  if(!el) return;
-  el.textContent = msg;
-  el.style.display = msg ? 'block' : 'none';
+  if(el) el.style.display = 'none';
 }
 
 function setChartScroll(enabled){
