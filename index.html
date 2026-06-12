@@ -2681,10 +2681,14 @@ ${editingBotId!=null ? 'This MODIFIES the existing bot — no new bot is added.'
 
   try{
     if(editingBotId != null){
+      // capture pre-edit identity so its old memory entry can be removed
+      const oldBot = serverBots.find(b=>b.id===editingBotId);
       const r = await fetch(PROXY+'/bot/update',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({id:editingBotId, cfg})});
       const d = await r.json();
       if(!r.ok) throw new Error(d.error||'update failed');
       log(`✏️ Bot #${d.id} updated on SERVER ✓`,'ok');
+      // editing replaces the memory entry — forget the old trigger's config
+      if(oldBot) forgetBotConfig(oldBot);
       saveBotConfig(cfg);
       cancelEditBot();
       pollBotStatus();
@@ -3220,7 +3224,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.20';
+const BUILD = '2026-06-12.21';
 
 function handleAuthFailure(){
   // Server restarted → session token died. Stop pretending we're connected.
