@@ -1882,20 +1882,11 @@ function setDrawTool(tool){
     const btn = document.getElementById('tool'+t);
     if(btn) btn.className = 'btn ' + (tool===t.toLowerCase() ? 'tool-active' : 'btn-ghost');
   });
+  // Mode indicator banner retired — tool button highlight is enough
   const ind = document.getElementById('modeIndicator');
   const hint = document.getElementById('drawHint');
-  if(tool==='trend'){
-    ind.classList.add('visible');
-    ind.textContent = 'Long press chart to start trend line';
-    if(hint) hint.textContent='';
-  } else if(tool==='horiz'){
-    ind.classList.add('visible');
-    ind.textContent = 'Long press chart to place horizontal line';
-    if(hint) hint.textContent='';
-  } else {
-    ind.classList.remove('visible');
-    if(hint) hint.textContent='';
-  }
+  if(ind) ind.classList.remove('visible');
+  if(hint) hint.textContent='';
 }
 function handleDrawClick(pt){
   // Desktop click fallback for trend lines
@@ -3140,7 +3131,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.5';
+const BUILD = '2026-06-12.6';
 
 function handleAuthFailure(){
   // Server restarted → session token died. Stop pretending we're connected.
