@@ -1075,7 +1075,8 @@ function saveBotConfig(cfg){
     saved.push({key, t:Date.now(), cfg});
     if(saved.length>8) saved = saved.slice(-8);
     localStorage.setItem('mexc_bot_configs', JSON.stringify(saved));
-  }catch(e){}
+    log(`💾 Bot config remembered (${saved.length} in memory) — will offer re-arm after restarts`,'info');
+  }catch(e){ log('⚠️ Could not save bot memory: '+e.message,'warn'); }
 }
 
 function forgetBotConfig(bot){
@@ -3061,7 +3062,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.9';
+const BUILD = '2026-06-12.10';
 
 function handleAuthFailure(){
   // Server restarted → session token died. Stop pretending we're connected.
@@ -3108,6 +3109,7 @@ Build: ${BUILD}
 Generated: ${new Date().toISOString()}
 App URL: ${location.href}
 Symbol: ${currentSymbol} | TF: ${currentTf}
+Saved bot memory: ${getSavedBotConfigs().length} config(s)
 Armed bots: ${JSON.stringify(serverBots)}
 Active trade: ${JSON.stringify(activeTrade)}
 
