@@ -1232,7 +1232,10 @@ function renderArmedBots(){
         <span style="color:var(--accent);font-weight:700;">BOT #${b.id}</span>
         <span style="color:var(--muted);"> ${b.dir} ${src} [${b.trigTf}] ${b.leverage>1?b.leverage+'×':''}</span>${tradeTag}
       </div>
-      <button onclick="disarmBot(${b.id})" style="background:none;border:1px solid var(--danger);color:var(--danger);border-radius:3px;font-size:9px;padding:2px 6px;cursor:pointer;flex-shrink:0;">✕</button>
+      <div style="display:flex;gap:4px;flex-shrink:0;">
+        ${!b.activeTrade ? `<button onclick="editBot(${b.id})" style="background:none;border:1px solid var(--accent2);color:var(--accent2);border-radius:3px;font-size:9px;padding:2px 6px;cursor:pointer;">✎</button>` : ''}
+        <button onclick="disarmBot(${b.id})" style="background:none;border:1px solid var(--danger);color:var(--danger);border-radius:3px;font-size:9px;padding:2px 6px;cursor:pointer;">✕</button>
+      </div>
     </div>`;
   }).join('');
 }
@@ -2514,6 +2517,73 @@ async function manualCloseTrade(){
 }
 
 // ── BOT ARM / DISARM ───────────────────────────
+let editingBotId = null;
+const TF_MAP_REV = {'Min1':'1m','Min5':'5m','Min15':'15m','Min60':'1h','Hour4':'4h','Day1':'1d'};
+
+function editBot(id){
+  const bot = serverBots.find(b=>b.id===id);
+  if(!bot || !bot.config){ log('Bot config unavailable — try again in a few seconds.','err'); return; }
+  if(bot.activeTrade){ log('Bot is in a trade — manage it from Open Trades.','err'); return; }
+  const cfg = bot.config;
+
+  // Trigger
+  setTriggerSource(cfg.triggerSource||'line');
+  document.getElementById('triggerTf').value = TF_MAP_REV[cfg.trigTf]||'5m';
+  document.getElementById('triggerDir').value = cfg.dir||'above';
+  if(cfg.triggerSource==='price') document.getElementById('triggerManualPrice').value = cfg.manualPrice||'';
+  else document.getElementById('triggerLineId').value = cfg.selectedLineId||'';
+
+  // Size + leverage
+  if(cfg.qtyUsdt){ setQtyMode('bot','usdt'); document.getElementById('botQtyUsdt').value = cfg.qtyUsdt; }
+  else { setQtyMode('bot','base'); document.getElementById('botQty').value = cfg.qty||1; }
+  document.getElementById('botLeverage').value = cfg.leverage||1;
+  document.getElementById('botMarginType').value = cfg.marginType||'isolated';
+  document.getElementById('orderType').value = cfg.orderType||'MARKET';
+
+  // TP levels
+  tpLevels = (cfg.tp.levels||[]).map(l=>({type:l.type||'pct', pct:l.pct, price:l.price??null, size:l.size}));
+  if(!tpLevels.length) tpLevels = [{type:'price', pct:2, price:null, size:100}];
+  renderTpLevels();
+  document.getElementById('breakEvenOnTp').checked = !!cfg.tp.breakEvenOnHit;
+  document.getElementById('tpMode').value = cfg.tp.mode||'price';
+  document.getElementById('tpTf').value = TF_MAP_REV[cfg.tp.tf]||'15m';
+
+  // SL
+  setExitType('botSl', cfg.sl.type||'pct');
+  if(cfg.sl.type==='price') document.getElementById('botSlPrice').value = cfg.sl.value||'';
+  else document.getElementById('slPct').value = cfg.sl.value||1;
+  document.getElementById('slMode').value = cfg.sl.mode||'price';
+  document.getElementById('slTf').value = TF_MAP_REV[cfg.sl.tf]||'15m';
+  updateSlHint();
+
+  // Switch the ARM button into update mode
+  editingBotId = id;
+  const armBtn = document.getElementById('armBtn');
+  if(armBtn){
+    armBtn.textContent = `✓ UPDATE BOT #${id}`;
+    armBtn.style.background = 'var(--accent2)';
+  }
+  let banner = document.getElementById('editBanner');
+  if(!banner){
+    banner = document.createElement('div');
+    banner.id = 'editBanner';
+    banner.style.cssText = 'font-family:var(--font-mono);font-size:10px;color:var(--accent2);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;';
+    armBtn.parentNode.insertBefore(banner, armBtn);
+  }
+  banner.innerHTML = `✏️ Editing Bot #${id} — settings loaded into the panel
+    <button onclick="cancelEditBot()" style="background:none;border:1px solid var(--muted);color:var(--muted);border-radius:3px;font-size:9px;padding:2px 6px;cursor:pointer;">Cancel</button>`;
+  banner.style.display = 'flex';
+  log(`✏️ Editing Bot #${id} — adjust settings, then tap UPDATE`,'info');
+}
+
+function cancelEditBot(){
+  editingBotId = null;
+  const armBtn = document.getElementById('armBtn');
+  if(armBtn){ armBtn.textContent = '▶ ARM NEW BOT'; armBtn.style.background = ''; }
+  const banner = document.getElementById('editBanner');
+  if(banner) banner.style.display = 'none';
+}
+
 async function armBot(){
   if(!authToken){ log('Log in first.','err'); return; }
   if(triggerSource==='line' && !trendLines.length){ log('Draw at least one trend line first.','err'); return; }
@@ -2586,7 +2656,7 @@ async function armBot(){
   function cfgLeverageFallback(){ try{ return parseInt(document.getElementById('leverage').value)||1; }catch(e){ return 1; } }
 
   const summary =
-`ARM THIS BOT?
+`${editingBotId!=null ? `UPDATE BOT #${editingBotId} WITH THESE SETTINGS?` : 'ARM THIS BOT?'}
 
 Trigger: ${sideLabel}
 Source: ${srcLabel}
@@ -2595,18 +2665,28 @@ Size: ${cfg.qtyUsdt ? '$'+notional+' USDT (converted at entry)' : cfg.qty+' cont
 TP: ${tpLabel}
 SL: ${slLabel}${cfg.tp.breakEvenOnHit?' + break-even on TP hit ✓':''}
 
-${alreadyArmed > 0 ? `⚠️ You already have ${alreadyArmed} bot${alreadyArmed>1?'s':''} armed — this ADDS another (total: ${alreadyArmed+1}).` : 'This will be your only armed bot.'}`;
+${editingBotId!=null ? 'This MODIFIES the existing bot — no new bot is added.' : (alreadyArmed > 0 ? `⚠️ You already have ${alreadyArmed} bot${alreadyArmed>1?'s':''} armed — this ADDS another (total: ${alreadyArmed+1}).` : 'This will be your only armed bot.')}`;
 
   if(!confirm(summary)) return;
 
   try{
+    if(editingBotId != null){
+      const r = await fetch(PROXY+'/bot/update',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({id:editingBotId, cfg})});
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.error||'update failed');
+      log(`✏️ Bot #${d.id} updated on SERVER ✓`,'ok');
+      saveBotConfig(cfg);
+      cancelEditBot();
+      pollBotStatus();
+      return;
+    }
     const r = await fetch(PROXY+'/bot/arm',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(cfg)});
     if(!r.ok) throw new Error('arm failed');
     const d = await r.json();
     log(`Bot #${d.id} armed on SERVER (${d.totalBots} running) — set up another or close the page ✓`,'ok');
     saveBotConfig(cfg);
     pollBotStatus();
-  }catch(e){ log(`Arm failed: ${e.message}`,'err'); return; }
+  }catch(e){ log(`${editingBotId!=null?'Update':'Arm'} failed: ${e.message}`,'err'); return; }
 
   botArmed=true;
   trendLines.forEach(tl=>tl.armed=true);
@@ -3108,7 +3188,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-12.14';
+const BUILD = '2026-06-12.15';
 
 function handleAuthFailure(){
   // Server restarted → session token died. Stop pretending we're connected.
