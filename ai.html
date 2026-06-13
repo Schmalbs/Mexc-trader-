@@ -75,6 +75,15 @@
 
 <div class="wrap">
 
+  <!-- ═══ MARKET SENTIMENT ═══ -->
+  <div class="bot-card" id="card-sentiment">
+    <div class="bot-header"><div class="bot-title">🌡️ MARKET SENTIMENT</div></div>
+    <p style="font-size:11px;color:var(--muted);margin:4px 0 8px;">A read on how key analysts are feeling, gathered live from the web. Sentiment is context — extremes often mark reversals, so weigh it, don't follow it.</p>
+    <div id="sentiment-cards"></div>
+    <div id="sentiment-meta" style="font-size:10px;color:var(--muted);margin:8px 0;font-family:var(--font-mono);"></div>
+    <button class="btn" id="sentiment-btn" onclick="refreshSentiment()" style="background:var(--accent2);color:#06281f;">↻ Refresh sentiment read</button>
+  </div>
+
   <!-- ═══ PATTERN BOT ═══ -->
   <div class="bot-card" id="card-pattern">
     <div class="bot-head">
@@ -413,7 +422,7 @@ async function doLogin(){
     authToken = d.token;
     localStorage.setItem('mexc_token', authToken);
     document.getElementById('loginOverlay').style.display='none';
-    loadJournal(); renderChat();
+    loadJournal(); renderChat(); loadSentiment();
     pollAll();
   }catch(e){ alert('Server unreachable: '+e.message); }
 }
@@ -602,6 +611,56 @@ function renderPerformance(d){
       <td style="text-align:left;padding-left:8px;color:var(--muted);">${(t.reason||'').slice(0,18)}</td>
     </tr>`;
   }).join('');
+}
+
+function leanColour(t){
+  t=(t||'').toUpperCase();
+  if(t.includes('BULL')) return 'var(--accent)';
+  if(t.includes('BEAR')) return 'var(--danger)';
+  if(t.includes('NO RECENT')) return '#5a6275';
+  return 'var(--warn)'; // neutral/mixed/uncertain
+}
+function renderSentiment(text){
+  const box = document.getElementById('sentiment-cards');
+  if(!text){ box.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0;">No read yet — tap refresh to gather the latest.</div>'; return; }
+  const labels = { OVERALL:'📊 Overall', COWEN:'Benjamin Cowen', MMCRYPTO:'MMCrypto', DAAX:'DAAN (daax)', SOLOWAY:'Gareth Soloway', COMMUNITY:'🌐 Community (Trends)', CONTRARIAN:'⚠️ Contrarian note' };
+  const order = ['OVERALL','COWEN','MMCRYPTO','DAAX','SOLOWAY','COMMUNITY','CONTRARIAN'];
+  const blocks = {};
+  const re = /\[([A-Z]+)\]\s*([^]*?)(?=\n\[[A-Z]+\]|$)/g;
+  let m; while((m = re.exec(text))){ blocks[m[1]] = m[2].trim(); }
+  // fallback: if nothing parsed, just show raw text
+  if(!Object.keys(blocks).length){ box.innerHTML = '<div style="font-size:12.5px;line-height:1.55;white-space:pre-wrap;color:var(--text);">'+text.replace(/</g,'&lt;')+'</div>'; return; }
+  box.innerHTML = order.filter(k=>blocks[k]).map(k=>{
+    const body = blocks[k];
+    const lean = (body.split('—')[0]||'').trim();
+    const isAnalyst = ['COWEN','MMCRYPTO','DAAX','SOLOWAY','OVERALL'].includes(k);
+    const col = isAnalyst ? leanColour(lean) : 'var(--muted)';
+    const accent = k==='OVERALL';
+    return `<div style="background:${accent?'rgba(61,127,255,.08)':'var(--bg2)'};border-left:3px solid ${col};border-radius:6px;padding:8px 11px;margin-bottom:7px;">
+      <div style="font-size:11px;font-weight:700;color:${col};margin-bottom:2px;">${labels[k]||k}</div>
+      <div style="font-size:12.5px;color:var(--text);line-height:1.5;">${body.replace(/</g,'&lt;')}</div>
+    </div>`;
+  }).join('');
+}
+async function loadSentiment(){
+  try{
+    const r = await fetch(PROXY+'/sentiment/get',{headers:authHeaders()});
+    if(!r.ok) return; const d = await r.json();
+    renderSentiment(d.text);
+    if(d.at) document.getElementById('sentiment-meta').textContent = 'Last updated: '+new Date(d.at).toLocaleString();
+  }catch(e){}
+}
+async function refreshSentiment(){
+  const btn = document.getElementById('sentiment-btn');
+  btn.disabled = true; btn.textContent = '⏳ Gathering (10-20s)…';
+  try{
+    const r = await fetch(PROXY+'/sentiment/refresh',{method:'POST',headers:authHeaders()});
+    if(r.status===401){ relogin(); return; }
+    const d = await r.json();
+    if(d.error){ document.getElementById('sentiment-meta').textContent = 'Error: '+d.error; }
+    else { renderSentiment(d.text); document.getElementById('sentiment-meta').textContent = 'Last updated: '+new Date(d.at).toLocaleString(); }
+  }catch(e){ document.getElementById('sentiment-meta').textContent = 'Error: '+e.message; }
+  btn.disabled = false; btn.textContent = '↻ Refresh sentiment read';
 }
 
 function pollAll(){ pollBot('pattern'); }
