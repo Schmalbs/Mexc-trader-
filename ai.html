@@ -99,6 +99,10 @@
         <select id="lines-pattern"><option value="both" selected>AI + mine</option><option value="ai">AI only</option><option value="user">Mine only</option></select>
       </div>
     </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin:8px 0;cursor:pointer;">
+      <input type="checkbox" id="swing-pattern" onchange="setSwingMode()" style="accent-color:var(--accent2);width:16px;height:16px;"/>
+      <span><b style="color:var(--text)">Swing mode</b> — also long from support / short from resistance (after reversal confirmation). Off = breakout-only.</span>
+    </label>
     <button class="btn btn-start" id="start-pattern" onclick="startBot('pattern')">▶ START PATTERN BOT</button>
     <button class="btn btn-stop" id="stop-pattern" onclick="stopBot('pattern')">■ STOP</button>
     <button class="btn" onclick="toggleChart('pattern')" id="chartbtn-pattern"
@@ -402,7 +406,7 @@ async function startBot(name){
   const allocation = parseFloat(document.getElementById('alloc-'+name).value)||100;
   if(!paper && !confirm(`⚠️ LIVE MODE — the ${name} bot will trade REAL money ($${allocation} allocation). Treat it as money you can lose entirely. Continue?`)) return;
   const body = { allocation, paper, decisionTf: document.getElementById('tf-'+name).value };
-  if(name==='pattern') body.lineSource = document.getElementById('lines-pattern').value;
+  if(name==='pattern'){ body.lineSource = document.getElementById('lines-pattern').value; body.swingMode = document.getElementById('swing-pattern').checked; }
   try{
     const r = await fetch(`${PROXY}/ai2/${name}/start`,{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
     if(r.status===401){ relogin(); return; }
@@ -412,6 +416,10 @@ async function startBot(name){
   }catch(e){ alert('Failed: '+e.message); }
 }
 
+async function setSwingMode(){
+  const on = document.getElementById('swing-pattern').checked;
+  try{ await fetch(PROXY+'/ai2/pattern/setmode',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({swingMode:on})}); }catch(e){}
+}
 async function stopBot(name){
   const d = lastStatus[name] || {};
   const orphaned = !d.enabled && d.position;
@@ -481,6 +489,10 @@ async function pollBot(name){
     pnlEl.style.color = d.realizedPnl>0?'var(--accent)':d.realizedPnl<0?'var(--danger)':'var(--text)';
     document.getElementById('pos-'+name).textContent = d.position
       ? `${d.position.side} @ $${d.position.entryPrice}` : 'none';
+    if(name==='pattern'){
+      const sw = document.getElementById('swing-pattern');
+      if(sw && d.swingMode!=null && document.activeElement!==sw) sw.checked = !!d.swingMode;
+    }
 
     const box = document.getElementById('dec-'+name);
     if(d.decisions && d.decisions.length){
