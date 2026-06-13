@@ -112,64 +112,9 @@
   </div>
 
   <!-- ═══ DAVIDD BOT ═══ -->
-  <div class="bot-card" id="card-davidd">
-    <div class="bot-head">
-      <div class="bot-title">📊 SYSTEMATIC (Davidd-style)</div>
-      <span class="pill pill-off" id="pill-davidd">OFF</span>
-    </div>
-    <div class="bot-desc">
-      Mechanical trend engine: EMA 21/55 cross + ADX&gt;23 regime filter + RSI confirmation,
-      2×ATR stop, 3.5×ATR target, break-even at +1R. Optional Claude supervisor can veto
-      weak signals. Runs <b>without an API key</b> when supervisor is off.
-    </div>
-    <div class="mode-toggle">
-      <button class="mode-btn paper-active" id="mode-davidd-paper" onclick="setMode('davidd','paper')">📝 PAPER</button>
-      <button class="mode-btn" id="mode-davidd-live" onclick="setMode('davidd','live')">💸 LIVE</button>
-    </div>
-    <div class="row">
-      <div class="field"><label>Allocation $</label><input type="number" id="alloc-davidd" value="100"/></div>
-      <div class="field"><label>Decision TF</label>
-        <select id="tf-davidd"><option value="Min15">15m</option><option value="Min60" selected>1h</option><option value="Hour4">4h</option></select>
-      </div>
-    </div>
-    <div class="toggle-row">
-      <input type="checkbox" id="supervisor-davidd" checked/>
-      <span>🧠 Claude supervisor (vetoes weak signals — needs API key)</span>
-    </div>
-    <button class="btn btn-start" id="start-davidd" onclick="startBot('davidd')">▶ START SYSTEMATIC BOT</button>
-    <div style="border-top:1px dashed var(--border);margin:12px 0 10px;"></div>
-    <div style="font-family:var(--font-mono);font-size:10px;color:var(--accent2);font-weight:700;margin-bottom:6px;">🔁 SELF-OPTIMIZE (Claude + backtester loop)</div>
-    <div class="row">
-      <div class="field"><label>Iterations</label><input type="number" id="opt-iters" value="15" min="3" max="30"/></div>
-      <div class="field" style="flex:2;display:flex;align-items:flex-end;">
-        <button class="btn" id="opt-start" onclick="startOptimize()" style="background:rgba(61,127,255,.15);border:1px solid var(--accent2);color:var(--accent2);">🔁 RUN OPTIMIZATION</button>
-      </div>
-    </div>
-    <div id="opt-progress" style="display:none;font-family:var(--font-mono);font-size:10px;color:var(--warn);margin-bottom:6px;"></div>
-    <div id="opt-phase" style="display:none;font-size:11px;color:var(--muted);margin:8px 0;line-height:1.7"></div>
-    <div id="opt-curve-wrap" style="display:none;margin-bottom:8px;">
-      <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-bottom:3px;">
-        Equity curve of best — <span style="color:var(--accent2)">blue = train</span> · <span style="color:var(--warn)">orange = out-of-sample test</span>
-      </div>
-      <div id="opt-curve" style="height:160px;border:1px solid var(--border);border-radius:6px;overflow:hidden;"></div>
-    </div>
-    <div id="opt-results" style="font-family:var(--font-mono);font-size:9px;color:var(--muted);line-height:1.6;"></div>
-    <button class="btn" id="opt-apply" onclick="applyBest()" style="display:none;margin-top:6px;background:var(--accent);color:#06281f;">✅ APPLY BEST PARAMS TO BOT</button>
-    <div id="opt-regime" style="display:none;margin-top:10px;font-size:11px;color:var(--muted);line-height:1.7"></div>
-    <button class="btn" id="opt-apply-regime" onclick="applyRegimeMap()" style="display:none;margin-top:6px;background:var(--accent2);color:#06281f;">🧭 APPLY ADAPTIVE REGIME MAP</button>
-    <button class="btn btn-stop" id="stop-davidd" onclick="stopBot('davidd')">■ STOP</button>
-    <button class="btn" onclick="toggleChart('davidd')" id="chartbtn-davidd"
-      style="margin-top:8px;background:var(--panel);border:1px solid var(--border);color:var(--muted);">📈 Show chart + strategy</button>
-    <div id="chart-davidd" style="display:none;height:300px;margin-top:8px;border:1px solid var(--border);border-radius:6px;overflow:hidden;"></div>
-    <div class="stats" id="stats-davidd" style="display:none;">
-      <span>P&amp;L <b id="pnl-davidd">$0.00</b></span>
-      <span>Position <b id="pos-davidd">none</b></span>
-    </div>
-    <div class="decisions" id="dec-davidd"></div>
-  </div>
 
   <div class="note">
-    Both bots run 24/7 on the server. Paper mode = real decisions, simulated fills — recommended
+    The pattern bot runs 24/7 on the server. Paper mode = real decisions, simulated fills — recommended
     until you've watched a few days of decision quality. Kill switch: -50% of allocation.
     Bots reset on server restarts (same as trigger bots).
   </div>
@@ -284,43 +229,12 @@ function drawOverlays(name, st){
   bc.priceLines.forEach(pl=>{ try{ bc.candles.removePriceLine(pl); }catch(e){} });
   bc.priceLines = [];
 
-  // position levels (both bots)
+  // position levels
   if(st.position){
     const p = st.position;
     bc.priceLines.push(bc.candles.createPriceLine({price:p.entryPrice, color:'#3d7fff', lineWidth:1, lineStyle:0, title:'entry'}));
     if(p.tpPrice) bc.priceLines.push(bc.candles.createPriceLine({price:p.tpPrice, color:'#00c896', lineWidth:1, lineStyle:2, title:'TP'}));
     if(p.slPrice) bc.priceLines.push(bc.candles.createPriceLine({price:p.slPrice, color:'#ff4d6a', lineWidth:1, lineStyle:2, title:'SL'}));
-  }
-
-  if(name==='davidd'){
-    // EMA fast/slow from current params
-    const P = st.params || {emaFast:21, emaSlow:55};
-    if(bc.candleData.length){
-      const closes = bc.candleData.map(c=>c.close);
-      const ef = calcEmaJs(closes, P.emaFast), es = calcEmaJs(closes, P.emaSlow);
-      const sF = bc.chart.addLineSeries({color:'#3d7fff', lineWidth:1, priceLineVisible:false, lastValueVisible:false, title:`EMA${P.emaFast}`});
-      const sS = bc.chart.addLineSeries({color:'#f5a623', lineWidth:1, priceLineVisible:false, lastValueVisible:false, title:`EMA${P.emaSlow}`});
-      sF.setData(bc.candleData.map((c,i)=>({time:c.time, value:ef[i]})));
-      sS.setData(bc.candleData.map((c,i)=>({time:c.time, value:es[i]})));
-      bc.lineSeries.push(sF, sS);
-    }
-    // exit markers from trade history
-    if(st.tradeHistory && st.tradeHistory.length && bc.candleData.length){
-      const step = TFSEC[bc.tf]||3600;
-      const t0 = bc.candleData[0].time;
-      const lastT = bc.candleData[bc.candleData.length-1].time;
-      const markers = st.tradeHistory
-        .map(t=>{
-          let mt = Math.round(t.t/1000/step)*step;
-          mt = Math.max(t0, Math.min(lastT, mt));
-          return { time: mt, position: t.pnl>=0?'aboveBar':'belowBar',
-                   color: t.pnl>=0?'#00c896':'#ff4d6a',
-                   shape: t.side==='BUY'?'arrowDown':'arrowUp',
-                   text: `${t.pnl>=0?'+':''}$${t.pnl.toFixed(0)}` };
-        })
-        .sort((a,b)=>a.time-b.time);
-      try{ bc.candles.setMarkers(markers); }catch(e){}
-    }
   }
 
   if(name==='pattern'){
@@ -340,7 +254,7 @@ function drawOverlays(name, st){
   }
 }
 let authToken = localStorage.getItem('mexc_token') || null;
-const modes = { pattern:'paper', davidd:'paper' };
+const modes = { pattern:'paper' };
 
 function authHeaders(extra){ return Object.assign({'X-Auth': authToken||''}, extra||{}); }
 
@@ -369,7 +283,6 @@ async function startBot(name){
   if(!paper && !confirm(`⚠️ LIVE MODE — the ${name} bot will trade REAL money ($${allocation} allocation). Treat it as money you can lose entirely. Continue?`)) return;
   const body = { allocation, paper, decisionTf: document.getElementById('tf-'+name).value };
   if(name==='pattern') body.lineSource = document.getElementById('lines-pattern').value;
-  if(name==='davidd')  body.aiSupervisor = document.getElementById('supervisor-davidd').checked;
   try{
     const r = await fetch(`${PROXY}/ai2/${name}/start`,{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
     if(r.status===401){ relogin(); return; }
@@ -422,26 +335,6 @@ async function pollBot(name){
     document.getElementById('pos-'+name).textContent = d.position
       ? `${d.position.side} @ $${d.position.entryPrice}` : 'none';
 
-    // Davidd mode indicator: adaptive regime map vs single strategy
-    if(name==='davidd'){
-      let modeEl = document.getElementById('mode-indicator-davidd');
-      if(!modeEl){
-        modeEl = document.createElement('div');
-        modeEl.id = 'mode-indicator-davidd';
-        modeEl.style.cssText = 'font-size:10px;color:var(--muted);margin-top:6px;font-family:var(--font-mono)';
-        const card = document.getElementById('card-davidd');
-        const stopBtn = document.getElementById('stop-davidd');
-        if(stopBtn && stopBtn.parentNode) stopBtn.parentNode.insertBefore(modeEl, stopBtn);
-      }
-      if(d.regimeMap){
-        const m = d.regimeMap;
-        modeEl.innerHTML = '🧭 ADAPTIVE: ' + ['bull','bear','chop'].map(rg=>
-          m[rg]?`<span style="color:var(--accent2)">${rg}→${m[rg].strategy}</span>`:`${rg}→flat`).join(' · ');
-      } else {
-        modeEl.innerHTML = `⚙️ Single strategy: <span style="color:var(--accent2)">${d.strategy||'trend'}</span>`;
-      }
-    }
-
     const box = document.getElementById('dec-'+name);
     if(d.decisions && d.decisions.length){
       box.innerHTML = d.decisions.slice().reverse().map(x=>`
@@ -456,138 +349,12 @@ async function pollBot(name){
   }catch(e){}
 }
 
-async function startOptimize(){
-  const iterations = parseInt(document.getElementById('opt-iters').value)||15;
-  if(!confirm(`Run ${iterations} iterations across MEXC's full multi-asset universe — BTC/ETH/SOL, S&P500, NASDAQ, DOW, top US stocks, gold, silver, oil (whatever MEXC actually lists, discovered live) — and 4 strategy types? Each candidate is 70/30 train/test validated. Costs ~$${(iterations*0.02).toFixed(2)} in credits, takes ~${Math.ceil(4+iterations*0.5)} min.`)) return;
-  const r = await fetch(PROXY+'/ai2/optimize/start',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({iterations, symbol:'BTC_USDT', tf:document.getElementById('tf-davidd').value})});
-  const d = await r.json();
-  if(d.error) alert(d.error);
-  pollOptimizer();
-}
-
-async function applyBest(){
-  if(!confirm('Apply the single best strategy to the Systematic bot? This DISABLES adaptive mode — the bot runs one strategy in all conditions.')) return;
-  const r = await fetch(PROXY+'/ai2/optimize/apply',{method:'POST',headers:authHeaders()});
-  const d = await r.json();
-  if(d.applied) alert('Applied single strategy: '+JSON.stringify(d.params));
-}
-
-async function applyRegimeMap(){
-  if(!confirm('Apply the ADAPTIVE regime map? The bot will switch strategy based on the live market regime (bull/bear/chop), staying flat in any regime with no profitable pick.')) return;
-  const r = await fetch(PROXY+'/ai2/optimize/apply-regime',{method:'POST',headers:authHeaders()});
-  const d = await r.json();
-  if(d.applied) alert('Adaptive map applied on '+d.symbol+':\n'+['bull','bear','chop'].map(rg=>d.regimeMap[rg]?rg+'→'+d.regimeMap[rg].strategy:rg+'→flat').join('\n'));
-  else alert(d.error||'could not apply');
-}
-
-let curveChart = null, curveTrain = null, curveTest = null, curvePhase = null, lastCurveSig = '';
-
-function renderEquityCurve(best){
-  if(!best || !best.curve || best.curve.length < 4) return;
-  const sig = best.symbol + best.strategy + JSON.stringify(best.params);
-  if(sig === lastCurveSig) return; // unchanged
-  whenLw(()=>{
-    const wrap = document.getElementById('opt-curve-wrap');
-    const box  = document.getElementById('opt-curve');
-    wrap.style.display = 'block';
-    if(!curveChart){
-      curveChart = LightweightCharts.createChart(box, {
-        layout:{ background:{color:'#0d0f14'}, textColor:'#6b7494', fontSize:9 },
-        grid:{ vertLines:{color:'#1a1f2e'}, horzLines:{color:'#1a1f2e'} },
-        timeScale:{ timeVisible:false, borderColor:'#252b3d' },
-        rightPriceScale:{ borderColor:'#252b3d' },
-      });
-      // Base continuous line (muted) + 3 phase overlays coloured by regime.
-      curveTrain = curveChart.addLineSeries({color:'#3a4258', lineWidth:1, priceLineVisible:false, lastValueVisible:false});
-      curveTest  = curveChart.addLineSeries({color:'#9aa4bd', lineWidth:2, priceLineVisible:false, lastValueVisible:true});
-      curvePhase = {
-        bull: curveChart.addLineSeries({color:'#2ecc71', lineWidth:3, priceLineVisible:false, lastValueVisible:false}),
-        bear: curveChart.addLineSeries({color:'#e74c3c', lineWidth:3, priceLineVisible:false, lastValueVisible:false}),
-        chop: curveChart.addLineSeries({color:'#8892a6', lineWidth:3, priceLineVisible:false, lastValueVisible:false}),
-      };
-      new ResizeObserver(()=>{ try{ curveChart.resize(box.clientWidth, box.clientHeight); }catch(e){} }).observe(box);
-    }
-    const split = best.splitTime || 0;
-    const seen = new Set();
-    const trainPts = [], testPts = [];
-    const phasePts = { bull:[], bear:[], chop:[] };
-    const allPts = [];
-    for(const p of best.curve){
-      if(seen.has(p.t)) continue;
-      seen.add(p.t);
-      (p.t <= split ? trainPts : testPts).push({ time:p.t, value:p.eq });
-      allPts.push(p);
-    }
-    if(trainPts.length && testPts.length) testPts.unshift(trainPts[trainPts.length-1]);
-    curveTrain.setData(trainPts);
-    curveTest.setData(testPts);
-    // phase overlays: each series carries its phase's points, whitespace elsewhere (creates gaps)
-    for(const ph of ['bull','bear','chop']){
-      curvePhase[ph].setData(allPts.map(p => ({ time:p.t, value: (p.phase||'chop')===ph ? p.eq : undefined })));
-    }
-    curveChart.timeScale().fitContent();
-
-    // Phase breakdown summary (out-of-sample TEST segment)
-    const pb = best.phaseBreakdown;
-    const pbBox = document.getElementById('opt-phase');
-    if(pb && pbBox){
-      const cell = (label,emoji,d)=> d && d.trades ?
-        `<span style="margin-right:14px">${emoji} <b>${label}</b>: <b style="color:${d.netPct>=0?'var(--accent)':'var(--danger)'}">${d.netPct>=0?'+':''}${d.netPct}%</b> · ${d.winRate}% win · ${d.trades}t</span>` :
-        `<span style="margin-right:14px;opacity:.5">${emoji} ${label}: no trades</span>`;
-      pbBox.innerHTML = '<b style="color:var(--text)">Out-of-sample by market phase:</b><br>' +
-        cell('Bull','🟢',pb.bull) + cell('Bear','🔴',pb.bear) + cell('Chop','⚪',pb.chop);
-      pbBox.style.display = 'block';
-    }
-    lastCurveSig = sig;
-  });
-}
-
-async function pollOptimizer(){
-  if(!authToken) return;
-  try{
-    const r = await fetch(PROXY+'/ai2/optimize/status',{headers:authHeaders()});
-    if(!r.ok) return;
-    const d = await r.json();
-    const prog = document.getElementById('opt-progress');
-    const resBox = document.getElementById('opt-results');
-    const applyBtn = document.getElementById('opt-apply');
-    if(d.running){
-      prog.style.display='block';
-      prog.textContent = `⏳ Running… iteration ${d.iter}/${d.total}`;
-    } else {
-      prog.style.display = d.best ? 'none' : prog.style.display;
-    }
-    if(d.top3 && d.top3.length){
-      resBox.innerHTML = '<b style="color:var(--text)">Leaderboard (judged on TEST segment):</b><br>' + d.top3.map((x,i)=>
-        `${i+1}. <b style="color:var(--accent2)">${x.symbol||''} ${x.strategy||''}</b> · TEST net <b style="color:${(x.testNet||0)>=0?'var(--accent)':'var(--danger)'}">${x.testNet}%</b> PF ${x.testPf} DD ${x.testDd}% · train net ${x.trainNet}% · ${x.trades}t<br>&nbsp;&nbsp;&nbsp;<span style="opacity:.8">${JSON.stringify(x.params)}</span>`
-      ).join('<br>');
-      applyBtn.style.display = d.best && !d.running ? 'block' : 'none';
-    }
-    // Adaptive regime map preview
-    const rm = d.regimeMap;
-    const rmBox = document.getElementById('opt-regime');
-    const rmBtn = document.getElementById('opt-apply-regime');
-    if(rm && (rm.bull||rm.bear||rm.chop) && !d.running){
-      const cell = (label,emoji,m)=> m ?
-        `<div>${emoji} <b>${label}</b> → <b style="color:var(--accent2)">${m.strategy}</b> on ${m.symbol} · in-regime OOS <b style="color:var(--accent)">+${m.regimeNet}%</b> (${m.regimeWin}% win, ${m.regimeTrades}t)</div>` :
-        `<div style="opacity:.5">${emoji} ${label} → flat (no profitable pick yet)</div>`;
-      rmBox.innerHTML = '<b style="color:var(--text)">🧭 Adaptive regime map (best strategy per market condition):</b>' +
-        cell('Bull','🟢',rm.bull)+cell('Bear','🔴',rm.bear)+cell('Chop','⚪',rm.chop);
-      rmBox.style.display='block';
-      rmBtn.style.display='block';
-    }
-    renderEquityCurve(d.best);
-  }catch(e){}
-}
-setInterval(pollOptimizer, 8000);
 setInterval(()=>{
-  for(const name of ['pattern','davidd']){
-    if(botCharts[name] && document.getElementById('chart-'+name).style.display!=='none')
-      refreshBotChart(name);
-  }
+  if(botCharts['pattern'] && document.getElementById('chart-pattern').style.display!=='none')
+    refreshBotChart('pattern');
 }, 30000);
 
-function pollAll(){ pollBot('pattern'); pollBot('davidd'); pollOptimizer(); }
+function pollAll(){ pollBot('pattern'); }
 setInterval(pollAll, 12000);
 
 // session restore
