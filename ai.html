@@ -146,6 +146,7 @@
       </div>
     </div>
     <div id="opt-progress" style="display:none;font-family:var(--font-mono);font-size:10px;color:var(--warn);margin-bottom:6px;"></div>
+    <div id="opt-phase" style="display:none;font-size:11px;color:var(--muted);margin:8px 0;line-height:1.7"></div>
     <div id="opt-curve-wrap" style="display:none;margin-bottom:8px;">
       <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-bottom:3px;">
         Equity curve of best — <span style="color:var(--accent2)">blue = train</span> · <span style="color:var(--warn)">orange = out-of-sample test</span>
@@ -154,6 +155,8 @@
     </div>
     <div id="opt-results" style="font-family:var(--font-mono);font-size:9px;color:var(--muted);line-height:1.6;"></div>
     <button class="btn" id="opt-apply" onclick="applyBest()" style="display:none;margin-top:6px;background:var(--accent);color:#06281f;">✅ APPLY BEST PARAMS TO BOT</button>
+    <div id="opt-regime" style="display:none;margin-top:10px;font-size:11px;color:var(--muted);line-height:1.7"></div>
+    <button class="btn" id="opt-apply-regime" onclick="applyRegimeMap()" style="display:none;margin-top:6px;background:var(--accent2);color:#06281f;">🧭 APPLY ADAPTIVE REGIME MAP</button>
     <button class="btn btn-stop" id="stop-davidd" onclick="stopBot('davidd')">■ STOP</button>
     <button class="btn" onclick="toggleChart('davidd')" id="chartbtn-davidd"
       style="margin-top:8px;background:var(--panel);border:1px solid var(--border);color:var(--muted);">📈 Show chart + strategy</button>
@@ -419,6 +422,26 @@ async function pollBot(name){
     document.getElementById('pos-'+name).textContent = d.position
       ? `${d.position.side} @ $${d.position.entryPrice}` : 'none';
 
+    // Davidd mode indicator: adaptive regime map vs single strategy
+    if(name==='davidd'){
+      let modeEl = document.getElementById('mode-indicator-davidd');
+      if(!modeEl){
+        modeEl = document.createElement('div');
+        modeEl.id = 'mode-indicator-davidd';
+        modeEl.style.cssText = 'font-size:10px;color:var(--muted);margin-top:6px;font-family:var(--font-mono)';
+        const card = document.getElementById('card-davidd');
+        const stopBtn = document.getElementById('stop-davidd');
+        if(stopBtn && stopBtn.parentNode) stopBtn.parentNode.insertBefore(modeEl, stopBtn);
+      }
+      if(d.regimeMap){
+        const m = d.regimeMap;
+        modeEl.innerHTML = '🧭 ADAPTIVE: ' + ['bull','bear','chop'].map(rg=>
+          m[rg]?`<span style="color:var(--accent2)">${rg}→${m[rg].strategy}</span>`:`${rg}→flat`).join(' · ');
+      } else {
+        modeEl.innerHTML = `⚙️ Single strategy: <span style="color:var(--accent2)">${d.strategy||'trend'}</span>`;
+      }
+    }
+
     const box = document.getElementById('dec-'+name);
     if(d.decisions && d.decisions.length){
       box.innerHTML = d.decisions.slice().reverse().map(x=>`
@@ -443,13 +466,21 @@ async function startOptimize(){
 }
 
 async function applyBest(){
-  if(!confirm('Apply the best parameters to the live Systematic bot? They take effect on its next decision.')) return;
+  if(!confirm('Apply the single best strategy to the Systematic bot? This DISABLES adaptive mode — the bot runs one strategy in all conditions.')) return;
   const r = await fetch(PROXY+'/ai2/optimize/apply',{method:'POST',headers:authHeaders()});
   const d = await r.json();
-  if(d.applied) alert('Applied: '+JSON.stringify(d.params));
+  if(d.applied) alert('Applied single strategy: '+JSON.stringify(d.params));
 }
 
-let curveChart = null, curveTrain = null, curveTest = null, lastCurveSig = '';
+async function applyRegimeMap(){
+  if(!confirm('Apply the ADAPTIVE regime map? The bot will switch strategy based on the live market regime (bull/bear/chop), staying flat in any regime with no profitable pick.')) return;
+  const r = await fetch(PROXY+'/ai2/optimize/apply-regime',{method:'POST',headers:authHeaders()});
+  const d = await r.json();
+  if(d.applied) alert('Adaptive map applied on '+d.symbol+':\n'+['bull','bear','chop'].map(rg=>d.regimeMap[rg]?rg+'→'+d.regimeMap[rg].strategy:rg+'→flat').join('\n'));
+  else alert(d.error||'could not apply');
+}
+
+let curveChart = null, curveTrain = null, curveTest = null, curvePhase = null, lastCurveSig = '';
 
 function renderEquityCurve(best){
   if(!best || !best.curve || best.curve.length < 4) return;
@@ -466,23 +497,47 @@ function renderEquityCurve(best){
         timeScale:{ timeVisible:false, borderColor:'#252b3d' },
         rightPriceScale:{ borderColor:'#252b3d' },
       });
-      curveTrain = curveChart.addLineSeries({color:'#3d7fff', lineWidth:2, priceLineVisible:false, lastValueVisible:false});
-      curveTest  = curveChart.addLineSeries({color:'#f5a623', lineWidth:2, priceLineVisible:false, lastValueVisible:true});
+      // Base continuous line (muted) + 3 phase overlays coloured by regime.
+      curveTrain = curveChart.addLineSeries({color:'#3a4258', lineWidth:1, priceLineVisible:false, lastValueVisible:false});
+      curveTest  = curveChart.addLineSeries({color:'#9aa4bd', lineWidth:2, priceLineVisible:false, lastValueVisible:true});
+      curvePhase = {
+        bull: curveChart.addLineSeries({color:'#2ecc71', lineWidth:3, priceLineVisible:false, lastValueVisible:false}),
+        bear: curveChart.addLineSeries({color:'#e74c3c', lineWidth:3, priceLineVisible:false, lastValueVisible:false}),
+        chop: curveChart.addLineSeries({color:'#8892a6', lineWidth:3, priceLineVisible:false, lastValueVisible:false}),
+      };
       new ResizeObserver(()=>{ try{ curveChart.resize(box.clientWidth, box.clientHeight); }catch(e){} }).observe(box);
     }
     const split = best.splitTime || 0;
     const seen = new Set();
     const trainPts = [], testPts = [];
+    const phasePts = { bull:[], bear:[], chop:[] };
+    const allPts = [];
     for(const p of best.curve){
       if(seen.has(p.t)) continue;
       seen.add(p.t);
-      (p.t <= split ? trainPts : testPts).push({time: p.t, value: p.eq});
+      (p.t <= split ? trainPts : testPts).push({ time:p.t, value:p.eq });
+      allPts.push(p);
     }
-    // connect segments visually
     if(trainPts.length && testPts.length) testPts.unshift(trainPts[trainPts.length-1]);
     curveTrain.setData(trainPts);
     curveTest.setData(testPts);
+    // phase overlays: each series carries its phase's points, whitespace elsewhere (creates gaps)
+    for(const ph of ['bull','bear','chop']){
+      curvePhase[ph].setData(allPts.map(p => ({ time:p.t, value: (p.phase||'chop')===ph ? p.eq : undefined })));
+    }
     curveChart.timeScale().fitContent();
+
+    // Phase breakdown summary (out-of-sample TEST segment)
+    const pb = best.phaseBreakdown;
+    const pbBox = document.getElementById('opt-phase');
+    if(pb && pbBox){
+      const cell = (label,emoji,d)=> d && d.trades ?
+        `<span style="margin-right:14px">${emoji} <b>${label}</b>: <b style="color:${d.netPct>=0?'var(--accent)':'var(--danger)'}">${d.netPct>=0?'+':''}${d.netPct}%</b> · ${d.winRate}% win · ${d.trades}t</span>` :
+        `<span style="margin-right:14px;opacity:.5">${emoji} ${label}: no trades</span>`;
+      pbBox.innerHTML = '<b style="color:var(--text)">Out-of-sample by market phase:</b><br>' +
+        cell('Bull','🟢',pb.bull) + cell('Bear','🔴',pb.bear) + cell('Chop','⚪',pb.chop);
+      pbBox.style.display = 'block';
+    }
     lastCurveSig = sig;
   });
 }
@@ -507,6 +562,19 @@ async function pollOptimizer(){
         `${i+1}. <b style="color:var(--accent2)">${x.symbol||''} ${x.strategy||''}</b> · TEST net <b style="color:${(x.testNet||0)>=0?'var(--accent)':'var(--danger)'}">${x.testNet}%</b> PF ${x.testPf} DD ${x.testDd}% · train net ${x.trainNet}% · ${x.trades}t<br>&nbsp;&nbsp;&nbsp;<span style="opacity:.8">${JSON.stringify(x.params)}</span>`
       ).join('<br>');
       applyBtn.style.display = d.best && !d.running ? 'block' : 'none';
+    }
+    // Adaptive regime map preview
+    const rm = d.regimeMap;
+    const rmBox = document.getElementById('opt-regime');
+    const rmBtn = document.getElementById('opt-apply-regime');
+    if(rm && (rm.bull||rm.bear||rm.chop) && !d.running){
+      const cell = (label,emoji,m)=> m ?
+        `<div>${emoji} <b>${label}</b> → <b style="color:var(--accent2)">${m.strategy}</b> on ${m.symbol} · in-regime OOS <b style="color:var(--accent)">+${m.regimeNet}%</b> (${m.regimeWin}% win, ${m.regimeTrades}t)</div>` :
+        `<div style="opacity:.5">${emoji} ${label} → flat (no profitable pick yet)</div>`;
+      rmBox.innerHTML = '<b style="color:var(--text)">🧭 Adaptive regime map (best strategy per market condition):</b>' +
+        cell('Bull','🟢',rm.bull)+cell('Bear','🔴',rm.bear)+cell('Chop','⚪',rm.chop);
+      rmBox.style.display='block';
+      rmBtn.style.display='block';
     }
     renderEquityCurve(d.best);
   }catch(e){}
