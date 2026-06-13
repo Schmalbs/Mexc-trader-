@@ -111,6 +111,30 @@
     <div class="decisions" id="dec-pattern"></div>
   </div>
 
+  <!-- ═══ TALK TO THE BOT ═══ -->
+  <div class="bot-card" id="card-chat">
+    <div class="bot-header"><div class="bot-title">💬 TALK TO THE BOT</div></div>
+    <p style="font-size:11px;color:var(--muted);margin:4px 0 8px;">Ask why it traded, give it standing rules, or note a lesson. It reasons over your journal before every entry — and it'll push back.</p>
+    <div id="chat-log" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:6px;">
+      <input type="text" id="chat-input" placeholder="Message the bot…" style="flex:1;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px 11px;font-size:13px;"/>
+      <button class="btn" id="chat-send" onclick="sendChat()" style="background:var(--accent2);color:#06281f;width:auto;padding:0 16px;">Send</button>
+    </div>
+
+    <div style="border-top:1px dashed var(--border);margin:14px 0 10px;"></div>
+    <div class="bot-title" style="font-size:13px;">📓 JOURNAL & STANDING RULES</div>
+    <p style="font-size:11px;color:var(--muted);margin:4px 0 8px;">The bot consults these before entering. Delete any that stop earning their keep.</p>
+    <div id="journal-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <select id="journal-kind" style="background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px;font-size:12px;">
+        <option value="instruction">Rule (always follow)</option>
+        <option value="note">Note (weigh it)</option>
+      </select>
+      <input type="text" id="journal-input" placeholder="e.g. Avoid shorts when weekly trend is up" style="flex:1;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px;"/>
+      <button class="btn" onclick="addJournal()" style="width:auto;padding:0 14px;">Add</button>
+    </div>
+  </div>
+
   <!-- ═══ DAVIDD BOT ═══ -->
 
   <div class="note">
@@ -122,6 +146,82 @@
 
 <script>
 const PROXY = 'https://mexc-proxy-production.up.railway.app';
+
+// ── Chat + Journal ──
+let chatHistory = [];
+const JKEY = 'mexc_pattern_journal';
+
+function renderChat(){
+  const box = document.getElementById('chat-log');
+  if(!box) return;
+  box.innerHTML = chatHistory.map(m=>`
+    <div style="align-self:${m.role==='user'?'flex-end':'flex-start'};max-width:85%;background:${m.role==='user'?'var(--accent2)':'var(--bg2)'};color:${m.role==='user'?'#06281f':'var(--text)'};padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.45;">${m.text.replace(/</g,'&lt;')}</div>`).join('');
+  box.scrollTop = box.scrollHeight;
+}
+async function sendChat(){
+  const inp = document.getElementById('chat-input');
+  const msg = inp.value.trim();
+  if(!msg) return;
+  inp.value='';
+  chatHistory.push({role:'user', text:msg}); renderChat();
+  chatHistory.push({role:'bot', text:'…'}); renderChat();
+  try{
+    const r = await fetch(PROXY+'/ai2/pattern/chat',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({message:msg, history:chatHistory.slice(0,-2)})});
+    if(r.status===401){ relogin(); return; }
+    const d = await r.json();
+    chatHistory.pop(); // remove placeholder
+    chatHistory.push({role:'bot', text: d.reply||d.error||'(no reply)'});
+    renderChat();
+    if(d.captured){ saveJournalLocal(d.journal); renderJournal(d.journal);
+      chatHistory.push({role:'bot', text:`📓 Saved to journal (${d.captured.kind}): "${d.captured.text}"`}); renderChat(); }
+  }catch(e){ chatHistory.pop(); chatHistory.push({role:'bot', text:'Error: '+e.message}); renderChat(); }
+}
+
+function renderJournal(journal){
+  const box = document.getElementById('journal-list');
+  if(!box) return;
+  if(!journal || !journal.length){ box.innerHTML = '<div style="font-size:11px;color:var(--muted)">No entries yet.</div>'; return; }
+  box.innerHTML = journal.map(e=>`
+    <div style="display:flex;align-items:flex-start;gap:8px;background:var(--bg2);border-radius:6px;padding:7px 9px;">
+      <span style="font-size:9px;font-family:var(--font-mono);padding:2px 5px;border-radius:3px;flex-shrink:0;${e.kind==='instruction'?'background:rgba(64,224,160,.15);color:var(--accent)':'background:rgba(245,166,35,.15);color:var(--warn)'}">${e.kind==='instruction'?'RULE':'NOTE'}</span>
+      <span style="flex:1;font-size:12px;color:var(--text);line-height:1.4;">${e.text.replace(/</g,'&lt;')}</span>
+      <button onclick="delJournal('${e.id}')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:13px;flex-shrink:0;">✕</button>
+    </div>`).join('');
+}
+function saveJournalLocal(journal){ try{ localStorage.setItem(JKEY, JSON.stringify(journal||[])); }catch(e){} }
+async function loadJournal(){
+  try{
+    const r = await fetch(PROXY+'/ai2/pattern/journal/list',{headers:authHeaders()});
+    if(r.status===401) return;
+    let d = await r.json();
+    // If server is empty (restarted) but we have a local mirror, re-seed it
+    if((!d.journal || !d.journal.length)){
+      const local = JSON.parse(localStorage.getItem(JKEY)||'[]');
+      if(local.length){
+        const sr = await fetch(PROXY+'/ai2/pattern/journal/seed',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({journal:local})});
+        d = await sr.json();
+      }
+    }
+    saveJournalLocal(d.journal); renderJournal(d.journal);
+  }catch(e){}
+}
+async function addJournal(){
+  const inp = document.getElementById('journal-input');
+  const text = inp.value.trim(); if(!text) return;
+  const kind = document.getElementById('journal-kind').value;
+  inp.value='';
+  const r = await fetch(PROXY+'/ai2/pattern/journal/add',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({kind,text})});
+  if(r.status===401){ relogin(); return; }
+  const d = await r.json();
+  saveJournalLocal(d.journal); renderJournal(d.journal);
+}
+async function delJournal(id){
+  const r = await fetch(PROXY+'/ai2/pattern/journal/delete',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({id})});
+  if(r.status===401){ relogin(); return; }
+  const d = await r.json();
+  saveJournalLocal(d.journal); renderJournal(d.journal);
+}
 const TFSEC = { Min15:900, Min60:3600, Hour4:14400 };
 
 // ── lightweight-charts loader ──
@@ -267,6 +367,7 @@ async function doLogin(){
     authToken = d.token;
     localStorage.setItem('mexc_token', authToken);
     document.getElementById('loginOverlay').style.display='none';
+    loadJournal(); renderChat();
     pollAll();
   }catch(e){ alert('Server unreachable: '+e.message); }
 }
@@ -293,7 +394,14 @@ async function startBot(name){
 }
 
 async function stopBot(name){
-  if(!confirm(`Stop the ${name} bot? Any open position stays as-is.`)) return;
+  const d = lastStatus[name] || {};
+  const orphaned = !d.enabled && d.position;
+  if(orphaned){
+    if(!confirm(`Close the leftover ${d.position.side} position from $${d.position.entryPrice}? This flattens the trade on MEXC.`)) return;
+    await fetch(`${PROXY}/ai2/${name}/close`,{method:'POST',headers:authHeaders()}).catch(()=>{});
+    pollBot(name); return;
+  }
+  if(!confirm(`Stop the ${name} bot? Any open position will still have its TP/SL managed, but no new trades will be taken.`)) return;
   await fetch(`${PROXY}/ai2/${name}/stop`,{method:'POST',headers:authHeaders()}).catch(()=>{});
   pollBot(name);
 }
@@ -325,8 +433,28 @@ async function pollBot(name){
       pill.className='pill pill-off';
       pill.textContent = (name==='pattern' && !d.hasApiKey) ? 'NO API KEY' : 'OFF';
     }
-    document.getElementById('start-'+name).style.display = d.enabled?'none':'block';
-    document.getElementById('stop-'+name).style.display  = d.enabled?'block':'none';
+    const orphaned = !d.enabled && d.position; // stopped but still holding a trade
+    if(orphaned){
+      // Pill warns; offer to flatten the leftover position
+      pill.className='pill pill-live'; pill.textContent='⚠ HOLDING (STOPPED)';
+    }
+    // START hidden while a position is open (can't "start fresh" mid-trade); show STOP/close instead
+    document.getElementById('start-'+name).style.display = (d.enabled || d.position)?'none':'block';
+    document.getElementById('stop-'+name).style.display  = (d.enabled || d.position)?'block':'none';
+    document.getElementById('stop-'+name).textContent = orphaned ? '■ CLOSE LEFTOVER POSITION' : (d.enabled?'■ STOP':'■ STOP');
+    // Warning banner for orphaned position
+    let warnEl = document.getElementById('orphan-warn-'+name);
+    if(orphaned){
+      if(!warnEl){
+        warnEl = document.createElement('div');
+        warnEl.id = 'orphan-warn-'+name;
+        warnEl.style.cssText = 'font-size:11px;color:var(--warn);background:rgba(245,166,35,.12);border:1px solid var(--warn);border-radius:6px;padding:8px 10px;margin:8px 0;line-height:1.4;';
+        const stopBtn = document.getElementById('stop-'+name);
+        stopBtn.parentNode.insertBefore(warnEl, stopBtn);
+      }
+      warnEl.innerHTML = `⚠️ The bot is <b>STOPPED</b> but still holding a ${d.position.side} from $${d.position.entryPrice}. Its TP/SL are still being managed, but it won't take new trades. Press <b>START</b> to resume trading, or close the position below.`;
+      warnEl.style.display='block';
+    } else if(warnEl){ warnEl.style.display='none'; }
     const stats = document.getElementById('stats-'+name);
     stats.style.display = (d.enabled || d.realizedPnl!==0)?'flex':'none';
     const pnlEl = document.getElementById('pnl-'+name);
@@ -355,7 +483,16 @@ setInterval(()=>{
 }, 30000);
 
 function pollAll(){ pollBot('pattern'); }
+const _origPollAll_journal = true;
 setInterval(pollAll, 12000);
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  const ci = document.getElementById('chat-input');
+  if(ci) ci.addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
+  const ji = document.getElementById('journal-input');
+  if(ji) ji.addEventListener('keydown', e=>{ if(e.key==='Enter') addJournal(); });
+  if(authToken) loadJournal();
+});
 
 // session restore
 if(authToken){
