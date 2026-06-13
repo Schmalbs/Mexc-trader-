@@ -338,14 +338,33 @@ function drawOverlays(name, st){
   }
 
   if(name==='pattern'){
-    // AI-drawn pattern lines, dashed
-    const colors = ['#3d7fff','#f5a623','#b07cff','#00c896'];
+    // YOUR drawn lines (from the main chart) — dotted white, so you can confirm
+    // the bot is seeing them. Only shown when the bot is set to use them.
+    if(st.lineSource !== 'ai'){
+      (st.userLines||[]).forEach(L=>{
+        if(L.isHoriz){
+          bc.priceLines.push(bc.candles.createPriceLine({
+            price: L.horizPrice, color:'#c9d1e0', lineWidth:1, lineStyle:1,
+            title:'your line #'+(L.id!=null?L.id:'') }));
+        } else if(L.p1 && L.p2){
+          const pts = gridSegment(bc, L.p1, L.p2);
+          if(pts.length<2) return;
+          const s = bc.chart.addLineSeries({
+            color:'#c9d1e0', lineWidth:1, lineStyle:1,
+            priceLineVisible:false, lastValueVisible:true, title:'your trend #'+(L.id!=null?L.id:'') });
+          s.setData(pts);
+          bc.lineSeries.push(s);
+        }
+      });
+    }
+    // AI-drawn pattern lines — one vibrant colour (cyan), thick & dashed, so all
+    // the bot's lines read as one set, distinct from your dotted grey lines.
     (st.aiLines||[]).forEach((L,i)=>{
       if(!L.p1 || !L.p2) return;
       const pts = gridSegment(bc, L.p1, L.p2);
       if(pts.length<2) return;
       const s = bc.chart.addLineSeries({
-        color: colors[i%colors.length], lineWidth:1, lineStyle:2,
+        color: '#00e5ff', lineWidth:2, lineStyle:2,
         priceLineVisible:false, lastValueVisible:true, title: L.label||('AI '+(i+1)),
       });
       s.setData(pts);
