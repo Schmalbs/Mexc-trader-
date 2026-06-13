@@ -92,6 +92,7 @@
     </div>
     <div class="row">
       <div class="field"><label>Allocation $</label><input type="number" id="alloc-pattern" value="100"/></div>
+      <div class="field"><label>Risk % / trade</label><input type="number" id="risk-pattern" value="5" step="0.5" min="0.5" max="20"/></div>
       <div class="field"><label>Decision TF</label>
         <select id="tf-pattern"><option value="Min15">15m</option><option value="Min60" selected>1h</option><option value="Hour4">4h</option></select>
       </div>
@@ -113,6 +114,28 @@
       <span>Position <b id="pos-pattern">none</b></span>
     </div>
     <div class="decisions" id="dec-pattern"></div>
+  </div>
+
+  <!-- ═══ PERFORMANCE ═══ -->
+  <div class="bot-card" id="card-perf">
+    <div class="bot-header"><div class="bot-title">📊 PERFORMANCE</div></div>
+    <div id="perf-summary" style="display:flex;flex-wrap:wrap;gap:14px;font-size:12px;margin:6px 0 10px;color:var(--muted);"></div>
+    <div id="perf-curve" style="height:200px;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:10px;"></div>
+    <div style="overflow-x:auto;">
+      <table id="perf-table" style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--font-mono);">
+        <thead><tr style="color:var(--muted);text-align:right;border-bottom:1px solid var(--border);">
+          <th style="text-align:left;padding:5px 6px;">Time</th>
+          <th style="text-align:left;">Side</th>
+          <th style="padding:5px 6px;">Entry</th>
+          <th>Exit</th>
+          <th>P&amp;L</th>
+          <th>R</th>
+          <th>Plan R:R</th>
+          <th style="text-align:left;padding-left:8px;">Exit</th>
+        </tr></thead>
+        <tbody id="perf-tbody"></tbody>
+      </table>
+    </div>
   </div>
 
   <!-- ═══ TALK TO THE BOT ═══ -->
@@ -406,7 +429,7 @@ async function startBot(name){
   const allocation = parseFloat(document.getElementById('alloc-'+name).value)||100;
   if(!paper && !confirm(`⚠️ LIVE MODE — the ${name} bot will trade REAL money ($${allocation} allocation). Treat it as money you can lose entirely. Continue?`)) return;
   const body = { allocation, paper, decisionTf: document.getElementById('tf-'+name).value };
-  if(name==='pattern'){ body.lineSource = document.getElementById('lines-pattern').value; body.swingMode = document.getElementById('swing-pattern').checked; }
+  if(name==='pattern'){ body.lineSource = document.getElementById('lines-pattern').value; body.swingMode = document.getElementById('swing-pattern').checked; body.riskPct = parseFloat(document.getElementById('risk-pattern').value)||5; }
   try{
     const r = await fetch(`${PROXY}/ai2/${name}/start`,{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
     if(r.status===401){ relogin(); return; }
@@ -492,7 +515,11 @@ async function pollBot(name){
     if(name==='pattern'){
       const sw = document.getElementById('swing-pattern');
       if(sw && d.swingMode!=null && document.activeElement!==sw) sw.checked = !!d.swingMode;
+      const rk = document.getElementById('risk-pattern');
+      if(rk && d.riskPct!=null && document.activeElement!==rk) rk.value = d.riskPct;
     }
+
+    if(name==='pattern') renderPerformance(d);
 
     const box = document.getElementById('dec-'+name);
     if(d.decisions && d.decisions.length){
@@ -512,6 +539,70 @@ setInterval(()=>{
   if(botCharts['pattern'] && document.getElementById('chart-pattern').style.display!=='none')
     refreshBotChart('pattern');
 }, 30000);
+
+let perfChart = null, perfSeries = null;
+function renderPerformance(d){
+  if(!d) return;
+  const hist = d.tradeHistory || [];
+  const curve = d.equityCurve || [];
+  // Summary stats
+  const closed = hist.length;
+  const wins = hist.filter(t=>t.pnl>0).length;
+  const winRate = closed ? (100*wins/closed).toFixed(0) : 0;
+  const totalPnl = hist.reduce((a,t)=>a+t.pnl,0);
+  const rs = hist.filter(t=>t.realizedR!=null).map(t=>t.realizedR);
+  const avgR = rs.length ? (rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(2) : '—';
+  const grossWin = hist.filter(t=>t.pnl>0).reduce((a,t)=>a+t.pnl,0);
+  const grossLoss = Math.abs(hist.filter(t=>t.pnl<0).reduce((a,t)=>a+t.pnl,0));
+  const pf = grossLoss>0 ? (grossWin/grossLoss).toFixed(2) : (grossWin>0?'∞':'—');
+  const sum = document.getElementById('perf-summary');
+  const col = v => v>=0?'var(--accent)':'var(--danger)';
+  sum.innerHTML = `
+    <span>Trades <b style="color:var(--text)">${closed}</b></span>
+    <span>Win rate <b style="color:var(--text)">${winRate}%</b></span>
+    <span>Net P&L <b style="color:${col(totalPnl)}">${totalPnl>=0?'+':''}$${totalPnl.toFixed(2)}</b>${d.tradeHistory[0]&&d.tradeHistory[0].paper?' 📝':''}</span>
+    <span>Avg R <b style="color:${col(avgR==='—'?0:parseFloat(avgR))}">${avgR}</b></span>
+    <span>Profit factor <b style="color:var(--text)">${pf}</b></span>`;
+
+  // Equity curve
+  const box = document.getElementById('perf-curve');
+  if(curve.length>=2){
+    whenLw(()=>{
+      if(!perfChart){
+        perfChart = LightweightCharts.createChart(box, {
+          layout:{background:{color:'#0d0f14'}, textColor:'#6b7494', fontSize:9},
+          grid:{vertLines:{color:'#1a1f2e'}, horzLines:{color:'#1a1f2e'}},
+          timeScale:{visible:false}, rightPriceScale:{borderColor:'#252b3d'},
+        });
+        perfSeries = perfChart.addAreaSeries({lineColor:'#00e5ff', topColor:'rgba(0,229,255,.25)', bottomColor:'rgba(0,229,255,.02)', lineWidth:2, priceLineVisible:false});
+        new ResizeObserver(()=>{ try{ perfChart.resize(box.clientWidth, box.clientHeight); }catch(e){} }).observe(box);
+      }
+      // x = trade index (synthetic time) since trades aren't evenly spaced
+      const data = curve.map((p,i)=>({time: i+1, value: p.eq}));
+      perfSeries.setData(data);
+      perfChart.timeScale().fitContent();
+    });
+  }
+
+  // Trade table (most recent first)
+  const tb = document.getElementById('perf-tbody');
+  if(!hist.length){ tb.innerHTML = '<tr><td colspan="8" style="padding:10px;color:var(--muted);text-align:center;">No closed trades yet.</td></tr>'; return; }
+  tb.innerHTML = hist.slice().reverse().map(t=>{
+    const pc = t.pnl>=0?'var(--accent)':'var(--danger)';
+    const rc = (t.realizedR!=null && t.realizedR>=0)?'var(--accent)':'var(--danger)';
+    const dt = new Date(t.t);
+    return `<tr style="text-align:right;border-bottom:1px solid #161b28;">
+      <td style="text-align:left;padding:5px 6px;color:var(--muted);">${dt.toLocaleDateString(undefined,{month:'short',day:'numeric'})} ${dt.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}</td>
+      <td style="text-align:left;color:${t.side==='BUY'?'var(--accent)':'var(--danger)'};">${t.side}</td>
+      <td style="padding:5px 6px;">$${(+t.entry).toFixed(0)}</td>
+      <td>$${(+t.exit).toFixed(0)}</td>
+      <td style="color:${pc};">${t.pnl>=0?'+':''}$${t.pnl.toFixed(2)}</td>
+      <td style="color:${rc};">${t.realizedR!=null?(t.realizedR>=0?'+':'')+t.realizedR+'R':'—'}</td>
+      <td style="color:var(--muted);">${t.plannedRR!=null?t.plannedRR+':1':'—'}</td>
+      <td style="text-align:left;padding-left:8px;color:var(--muted);">${(t.reason||'').slice(0,18)}</td>
+    </tr>`;
+  }).join('');
+}
 
 function pollAll(){ pollBot('pattern'); }
 const _origPollAll_journal = true;
