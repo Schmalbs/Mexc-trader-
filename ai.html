@@ -113,10 +113,6 @@
       <input type="checkbox" id="swing-pattern" onchange="setSwingMode()" style="accent-color:var(--accent2);width:16px;height:16px;"/>
       <span><b style="color:var(--text)">Swing mode</b> — also long from support / short from resistance (after reversal confirmation). Off = breakout-only.</span>
     </label>
-    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin:8px 0;cursor:pointer;">
-      <input type="checkbox" id="guards-pattern" onchange="setGuards()" checked style="accent-color:var(--accent2);width:16px;height:16px;"/>
-      <span><b style="color:var(--text)">Emotion guards</b> — halt after 2 losses in a row + 30-min cooldown after any loss. (Pattern bot only.)</span>
-    </label>
     <button class="btn btn-start" id="start-pattern" onclick="startBot('pattern')">▶ START PATTERN BOT</button>
     <button class="btn btn-stop" id="stop-pattern" onclick="stopBot('pattern')">■ STOP</button>
     <button class="btn" onclick="toggleChart('pattern')" id="chartbtn-pattern"
@@ -452,19 +448,9 @@ async function startBot(name){
   }catch(e){ alert('Failed: '+e.message); }
 }
 
-async function setGuards(){
-  const on = document.getElementById('guards-pattern').checked;
-  try{ await fetch(PROXY+'/ai2/pattern/setmode',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({guardsOn:on})}); }catch(e){}
-}
 async function setSwingMode(){
   const on = document.getElementById('swing-pattern').checked;
   try{ await fetch(PROXY+'/ai2/pattern/setmode',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({swingMode:on})}); }catch(e){}
-}
-async function resumeBot(){
-  const reason = prompt("You're resuming after 2 losses. Why are you confident now? (logged to journal)");
-  if(reason===null) return; // cancelled — stay halted
-  await fetch(PROXY+'/ai2/pattern/resume',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({reason})}).catch(()=>{});
-  pollBot('pattern'); loadJournal();
 }
 async function stopBot(name){
   const d = lastStatus[name] || {};
@@ -473,7 +459,7 @@ async function stopBot(name){
     if(!confirm(`Close the leftover ${d.position.side} position from $${d.position.entryPrice}? This flattens the trade on MEXC.`)) return;
     const why = prompt("Why are you overriding the system and closing manually? (logged to journal)");
     if(why===null) return; // cancelled
-    await fetch(`${PROXY}/ai2/pattern/override`,{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({what:'manual close',reason:why})}).catch(()=>{});
+    await fetch(`${PROXY}/ai2/pattern/journal/add`,{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({kind:'note',text:'[override] Manually closed bot position: '+why})}).catch(()=>{});
     await fetch(`${PROXY}/ai2/${name}/close`,{method:'POST',headers:authHeaders()}).catch(()=>{});
     pollBot(name); loadJournal(); return;
   }
@@ -539,35 +525,13 @@ async function pollBot(name){
     document.getElementById('pos-'+name).textContent = d.position
       ? `${d.position.side} @ $${d.position.entryPrice}` : 'none';
     if(name==='pattern'){
-      const gd = document.getElementById('guards-pattern');
-      if(gd && d.guardsOn!=null && document.activeElement!==gd) gd.checked = !!d.guardsOn;
       const sw = document.getElementById('swing-pattern');
       if(sw && d.swingMode!=null && document.activeElement!==sw) sw.checked = !!d.swingMode;
       const rk = document.getElementById('risk-pattern');
       if(rk && d.riskPct!=null && document.activeElement!==rk) rk.value = d.riskPct;
     }
 
-    if(name==='pattern'){
-      renderPerformance(d);
-      // Emotion-guard banner: halt after losses, or active cooldown
-      let g = document.getElementById('guard-banner');
-      if(!g){
-        g = document.createElement('div'); g.id='guard-banner';
-        g.style.cssText='border-radius:7px;padding:10px 12px;margin:8px 0;font-size:12px;line-height:1.45;display:none;';
-        const card = document.getElementById('card-pattern');
-        const sb = document.getElementById('start-pattern');
-        if(card&&sb) card.insertBefore(g, sb);
-      }
-      const now = Date.now();
-      if(d.haltedByLosses){
-        g.style.cssText += ';background:rgba(255,46,99,.12);border:1px solid var(--danger);color:var(--danger);display:block;';
-        g.innerHTML = `🛑 <b>Halted — ${d.consecutiveLosses} losses in a row.</b> This is the tilt zone. Step away, then resume when you're clear-headed.<br><button onclick="resumeBot()" style="margin-top:8px;background:var(--danger);color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">I'm clear — resume trading</button>`;
-      } else if(d.cooldownUntil && now < d.cooldownUntil){
-        const mins = Math.ceil((d.cooldownUntil-now)/60000);
-        g.style.cssText += ';background:rgba(245,166,35,.1);border:1px solid var(--warn);color:var(--warn);display:block;';
-        g.innerHTML = `⏳ <b>Cooldown:</b> ${mins} min before the bot can take a new trade. Forced pause after a loss — no revenge entries.`;
-      } else { g.style.display='none'; }
-    }
+    if(name==='pattern') renderPerformance(d);
 
     const box = document.getElementById('dec-'+name);
     if(d.decisions && d.decisions.length){
