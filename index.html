@@ -989,9 +989,9 @@ function recordManualClose(pnlDelta){
   if(pnlDelta < -0.01){
     setManualStreak(manualLossStreak+1);
     if(manualLossStreak>=2){
-      log(`🛑 ${manualLossStreak} manual losses in a row — tilt zone. Step back before the next entry.`,'err');
+      log(`🛑 ${manualLossStreak} losses in a row — tilt zone. You'll get a warning before arming or trading. Bots keep running.`,'err');
     } else {
-      log(`Manual loss recorded (streak: ${manualLossStreak}).`,'warn');
+      log(`Loss recorded (streak: ${manualLossStreak}).`,'warn');
     }
   } else if(pnlDelta > 0.01){
     if(manualLossStreak>0) log(`Win — loss streak reset.`,'ok');
@@ -999,17 +999,16 @@ function recordManualClose(pnlDelta){
   }
 }
 // Returns true if the trade may proceed
-function passManualGuard(side){
+function passManualGuard(action){
   if(manualLossStreak < 2) return true;
-  const why = prompt(`⚠️ You've had ${manualLossStreak} losing manual trades in a row.\n\nThis is exactly the moment the app was built to interrupt. Are you entering on a real setup, or chasing the loss?\n\nType your reason to proceed (or Cancel to step away):`);
+  const why = prompt(`⚠️ You've had ${manualLossStreak} losing trades in a row (manual or bot).\n\nThis is exactly the moment the app was built to interrupt. Is this a real setup, or are you chasing the losses?\n\nType your reason to proceed with: ${action}\n(or Cancel to step away):`);
   if(why===null || !why.trim()){
-    log('Manual entry cancelled — stepped away from the tilt zone. Good call.','ok');
+    log('Cancelled — stepped away from the tilt zone. Good call.','ok');
     return false;
   }
-  // log the override reason to the server journal so there's a record
   fetch(PROXY+'/ai2/pattern/journal/add',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),
-    body:JSON.stringify({kind:'note', text:`[manual override] Entered ${side} after ${manualLossStreak} losses: ${why.trim()}`})}).catch(()=>{});
-  log(`Override logged: "${why.trim()}" — entry allowed.`,'warn');
+    body:JSON.stringify({kind:'note', text:`[override] Proceeded to ${action} after ${manualLossStreak} losses: ${why.trim()}`})}).catch(()=>{});
+  log(`Override logged: "${why.trim()}" — proceeding.`,'warn');
   return true;
 }
 let tradeCount = 0;
@@ -1447,9 +1446,10 @@ async function fetchOpenPositions(){
     if(mexcPositions.length && mexcPositions.length !== prevCount){
       log(`Found ${mexcPositions.length} open position(s) on MEXC`,'ok');
     }
-    // A manual position just closed (count dropped, no bot-managed trade active)?
-    // Compare realized P&L to detect win/loss for the streak guard.
-    if(prevCount>0 && mexcPositions.length < prevCount && !activeTrade){
+    // A position just closed (manual OR bot) — feed the win/loss into the streak.
+    // Bot losses count as a SIGNAL (market not working for your setups) but never
+    // halt the bots; they only make the ARM / manual-entry buttons warn you.
+    if(prevCount>0 && mexcPositions.length < prevCount){
       const delta = realizedPnlDollars - lastRealizedForStreak;
       recordManualClose(delta);
     }
@@ -2679,6 +2679,7 @@ function cancelEditBot(){
 async function armBot(){
   if(!authToken){ log('Log in first.','err'); return; }
   if(triggerSource==='line' && !trendLines.length){ log('Draw at least one trend line first.','err'); return; }
+  if(!passManualGuard('arm a new bot')) return;
 
   // Build server config
   const cfg = {
@@ -3308,7 +3309,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.32';
+const BUILD = '2026-06-14.33';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
