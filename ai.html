@@ -104,6 +104,10 @@
       <input type="checkbox" id="swing-pattern" onchange="setSwingMode()" style="accent-color:var(--accent2);width:16px;height:16px;"/>
       <span><b style="color:var(--text)">Swing mode</b> — also long from support / short from resistance (after reversal confirmation). Off = breakout-only.</span>
     </label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin:8px 0;cursor:pointer;">
+      <input type="checkbox" id="library-pattern" onchange="setLibrary()" checked style="accent-color:var(--accent);width:16px;height:16px;"/>
+      <span><b style="color:var(--text)">Use research library</b> — the bot reads your saved trade reasoning & companion feedback to lean toward your style. Off = ignore it.</span>
+    </label>
     <button class="btn btn-start" id="start-pattern" onclick="startBot('pattern')">▶ START PATTERN BOT</button>
     <button class="btn btn-stop" id="stop-pattern" onclick="stopBot('pattern')">■ STOP</button>
     <button class="btn" onclick="toggleChart('pattern')" id="chartbtn-pattern"
@@ -118,13 +122,13 @@
 
   <!-- ═══ PERFORMANCE ═══ -->
   <div class="bot-card" id="card-perf">
-    <div class="bot-header"><div class="bot-title">📊 PERFORMANCE</div></div>
+    <div class="bot-header" style="display:flex;align-items:center;justify-content:space-between;"><div class="bot-title">📊 PERFORMANCE</div><button onclick="copyTradeHistory()" style="background:var(--bg2);border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:11px;padding:5px 10px;cursor:pointer;">📋 Copy history</button></div>
     <div id="perf-summary" style="display:flex;flex-wrap:wrap;gap:14px;font-size:12px;margin:6px 0 10px;color:var(--muted);"></div>
     <div id="perf-curve" style="height:200px;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:10px;"></div>
     <div style="overflow-x:auto;">
       <table id="perf-table" style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--font-mono);">
         <thead><tr style="color:var(--muted);text-align:right;border-bottom:1px solid var(--border);">
-          <th style="text-align:left;padding:5px 6px;">Time</th>
+          <th style="text-align:left;padding:5px 6px;">Date / in→out</th>
           <th style="text-align:left;">Side</th>
           <th style="padding:5px 6px;">Entry</th>
           <th>Exit</th>
@@ -198,8 +202,13 @@ async function sendChat(){
     if(r.status===401){ relogin(); return; }
     const d = await r.json();
     chatHistory.pop(); // remove placeholder
-    chatHistory.push({role:'bot', text: d.reply||d.error||'(no reply)'});
+    const reply = d.reply||d.error||'(no reply)';
+    chatHistory.push({role:'bot', text: reply});
     renderChat();
+    if(d.reply){
+      fetch(PROXY+'/library/add',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),
+        body:JSON.stringify({plan:'[bot chat] '+msg, feedback:reply, symbol:'BTC_USDT'})}).catch(()=>{});
+    }
     if(d.captured){ saveJournalLocal(d.journal); renderJournal(d.journal);
       chatHistory.push({role:'bot', text:`📓 Saved to journal (${d.captured.kind}): "${d.captured.text}"`}); renderChat(); }
   }catch(e){ chatHistory.pop(); chatHistory.push({role:'bot', text:'Error: '+e.message}); renderChat(); }
@@ -413,7 +422,7 @@ async function doLogin(){
     authToken = d.token;
     localStorage.setItem('mexc_token', authToken);
     document.getElementById('loginOverlay').style.display='none';
-    loadJournal(); renderChat();
+    loadJournal(); renderChat(); loadLibraryState();
     pollAll();
   }catch(e){ alert('Server unreachable: '+e.message); }
 }
@@ -439,6 +448,18 @@ async function startBot(name){
   }catch(e){ alert('Failed: '+e.message); }
 }
 
+async function setLibrary(){
+  const on = document.getElementById('library-pattern').checked;
+  try{ await fetch(PROXY+'/library/toggle',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({enabled:on})}); }catch(e){}
+}
+async function loadLibraryState(){
+  try{
+    const r = await fetch(PROXY+'/library/list',{headers:authHeaders()});
+    const d = await r.json();
+    const el = document.getElementById('library-pattern');
+    if(el && d.enabled!=null) el.checked = !!d.enabled;
+  }catch(e){}
+}
 async function setSwingMode(){
   const on = document.getElementById('swing-pattern').checked;
   try{ await fetch(PROXY+'/ai2/pattern/setmode',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({swingMode:on})}); }catch(e){}
@@ -578,7 +599,30 @@ function renderOpenTrade(d){
 }
 
 let perfChart = null, perfSeries = null;
+function copyTradeHistory(){
+  const d = window._lastPatternStatus;
+  const hist = (d && d.tradeHistory) || [];
+  if(!hist.length){ alert('No closed trades to copy yet.'); return; }
+  const wins = hist.filter(t=>t.pnl>0).length;
+  const totalPnl = hist.reduce((a,t)=>a+t.pnl,0);
+  const rs = hist.filter(t=>t.realizedR!=null).map(t=>t.realizedR);
+  const avgR = rs.length ? (rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(2) : '—';
+  let out = `PATTERN BOT TRADE HISTORY\n`;
+  out += `Trades: ${hist.length} | Win rate: ${(100*wins/hist.length).toFixed(0)}% | Net P&L: ${totalPnl>=0?'+':''}$${totalPnl.toFixed(2)} | Avg R: ${avgR}\n`;
+  out += `${d.paper?'(PAPER MODE)':'(LIVE)'}\n\n`;
+  out += `Time\tSide\tEntry\tExit\tP&L\tR\tPlanR:R\tExit reason\n`;
+  hist.slice().reverse().forEach(t=>{
+    const dt = new Date(t.t);
+    const inT = t.openedAt? new Date(t.openedAt).toLocaleString() : '—';
+    out += `entered ${inT} / exited ${dt.toLocaleString()}\t${t.side}\t$${(+t.entry).toFixed(1)}\t$${(+t.exit).toFixed(1)}\t${t.pnl>=0?'+':''}$${t.pnl.toFixed(2)}\t${t.realizedR!=null?(t.realizedR>=0?'+':'')+t.realizedR+'R':'—'}\t${t.plannedRR!=null?t.plannedRR+':1':'—'}\t${t.reason||''}\n`;
+  });
+  navigator.clipboard.writeText(out).then(
+    ()=>{ const b=event.target; const o=b.textContent; b.textContent='✓ Copied'; setTimeout(()=>b.textContent=o,1500); },
+    ()=>alert('Copy failed — select and copy manually.')
+  );
+}
 function renderPerformance(d){
+  window._lastPatternStatus = d;
   if(!d) return;
   const hist = d.tradeHistory || [];
   const curve = d.equityCurve || [];
@@ -629,7 +673,7 @@ function renderPerformance(d){
     const rc = (t.realizedR!=null && t.realizedR>=0)?'var(--accent)':'var(--danger)';
     const dt = new Date(t.t);
     return `<tr style="text-align:right;border-bottom:1px solid #161b28;">
-      <td style="text-align:left;padding:5px 6px;color:var(--muted);">${dt.toLocaleDateString(undefined,{month:'short',day:'numeric'})} ${dt.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}</td>
+      <td style="text-align:left;padding:5px 6px;color:var(--muted);">${dt.toLocaleDateString(undefined,{month:'short',day:'numeric'})}${t.openedAt?`<br><span style="font-size:9px;">in ${new Date(t.openedAt).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}</span>`:''}<br><span style="font-size:9px;">out ${dt.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}</span></td>
       <td style="text-align:left;color:${t.side==='BUY'?'var(--accent)':'var(--danger)'};">${t.side}</td>
       <td style="padding:5px 6px;">$${(+t.entry).toFixed(0)}</td>
       <td>$${(+t.exit).toFixed(0)}</td>
