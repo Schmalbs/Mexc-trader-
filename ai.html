@@ -773,9 +773,18 @@ async function refreshSentiment(){
     const r = await fetch(PROXY+'/sentiment/refresh',{method:'POST',headers:authHeaders()});
     if(r.status===401){ relogin(); return; }
     const d = await r.json();
-    if(d.error){ document.getElementById('sentiment-meta').textContent = 'Error: '+d.error; }
-    else { sentimentLastAt = d.at; renderSentiment(d.text); document.getElementById('sentiment-meta').textContent = 'Last updated: '+new Date(d.at).toLocaleString(); }
-  }catch(e){ document.getElementById('sentiment-meta').textContent = 'Error: '+e.message; }
+    if(d.error){
+      sentimentCollapsed = false; applySentimentCollapse();
+      document.getElementById('sentiment-cards').innerHTML = `<div style="font-size:12px;color:var(--danger);background:rgba(255,46,99,.1);border:1px solid var(--danger);border-radius:6px;padding:10px;">Sentiment failed: ${d.error}<br><span style="color:var(--muted)">Tap refresh to try again.</span></div>`;
+      document.getElementById('sentiment-meta').textContent = '';
+    } else {
+      sentimentLastAt = d.at; renderSentiment(d.text);
+      document.getElementById('sentiment-meta').textContent = 'Last updated: '+new Date(d.at).toLocaleString();
+    }
+  }catch(e){
+    sentimentCollapsed = false; applySentimentCollapse();
+    document.getElementById('sentiment-cards').innerHTML = `<div style="font-size:12px;color:var(--danger);background:rgba(255,46,99,.1);border:1px solid var(--danger);border-radius:6px;padding:10px;">Couldn't reach the server: ${e.message}<br><span style="color:var(--muted)">Check connection and tap refresh.</span></div>`;
+  }
   btn.disabled = false; btn.textContent = '↻ Refresh sentiment read';
 }
 
