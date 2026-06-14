@@ -975,6 +975,43 @@ let candleExitInterval = null;
 // Account P&L tracking
 let startingBalance = 1000;  // user sets this
 let realizedPnlDollars = 0;  // sum of closed trade profits/losses in $
+
+// ── MANUAL-TRADING EMOTION GUARD ──
+// Tracks consecutive LOSING manual trades. After 2 in a row, QUICK BUY/SELL warn
+// (with override reason) before letting you enter. Detects a loss when an open
+// position disappears and realized P&L dropped. Persisted to localStorage so it
+// survives reloads. Applies to MANUAL trades only — never the bots.
+let manualLossStreak = parseInt(localStorage.getItem('manualLossStreak')||'0');
+let lastRealizedForStreak = parseFloat(localStorage.getItem('lastRealizedForStreak')||'0');
+function setManualStreak(n){ manualLossStreak=n; localStorage.setItem('manualLossStreak', String(n)); }
+function recordManualClose(pnlDelta){
+  // called when a manual position closes; pnlDelta = change in realized P&L
+  if(pnlDelta < -0.01){
+    setManualStreak(manualLossStreak+1);
+    if(manualLossStreak>=2){
+      log(`🛑 ${manualLossStreak} manual losses in a row — tilt zone. Step back before the next entry.`,'err');
+    } else {
+      log(`Manual loss recorded (streak: ${manualLossStreak}).`,'warn');
+    }
+  } else if(pnlDelta > 0.01){
+    if(manualLossStreak>0) log(`Win — loss streak reset.`,'ok');
+    setManualStreak(0);
+  }
+}
+// Returns true if the trade may proceed
+function passManualGuard(side){
+  if(manualLossStreak < 2) return true;
+  const why = prompt(`⚠️ You've had ${manualLossStreak} losing manual trades in a row.\n\nThis is exactly the moment the app was built to interrupt. Are you entering on a real setup, or chasing the loss?\n\nType your reason to proceed (or Cancel to step away):`);
+  if(why===null || !why.trim()){
+    log('Manual entry cancelled — stepped away from the tilt zone. Good call.','ok');
+    return false;
+  }
+  // log the override reason to the server journal so there's a record
+  fetch(PROXY+'/ai2/pattern/journal/add',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),
+    body:JSON.stringify({kind:'note', text:`[manual override] Entered ${side} after ${manualLossStreak} losses: ${why.trim()}`})}).catch(()=>{});
+  log(`Override logged: "${why.trim()}" — entry allowed.`,'warn');
+  return true;
+}
 let tradeCount = 0;
 
 const PROXY = 'https://mexc-proxy-production.up.railway.app';
@@ -1410,6 +1447,14 @@ async function fetchOpenPositions(){
     if(mexcPositions.length && mexcPositions.length !== prevCount){
       log(`Found ${mexcPositions.length} open position(s) on MEXC`,'ok');
     }
+    // A manual position just closed (count dropped, no bot-managed trade active)?
+    // Compare realized P&L to detect win/loss for the streak guard.
+    if(prevCount>0 && mexcPositions.length < prevCount && !activeTrade){
+      const delta = realizedPnlDollars - lastRealizedForStreak;
+      recordManualClose(delta);
+    }
+    lastRealizedForStreak = realizedPnlDollars;
+    localStorage.setItem('lastRealizedForStreak', String(realizedPnlDollars));
     renderTradesPanel();
   }catch(e){
     log(`Position fetch failed: ${e.message}`,'warn');
@@ -2408,6 +2453,7 @@ document.getElementById('slMode').addEventListener('change',function(){
 function quickTrade(side){
   if(activeTrade){ log('Close current trade first.','err'); return; }
   if(!lastPrice){ log('No price loaded yet.','err'); return; }
+  if(!passManualGuard(side)) return;
   // Use settings from full settings panel for TP/SL
   const entryPriceEst = lastPrice||1;
   const qty        = resolveQty('manual', entryPriceEst);
@@ -2429,6 +2475,7 @@ function manualOpenTrade(){
   if(activeTrade){ log('Close current trade first.','err'); return; }
   if(!lastPrice){ log('No price loaded yet.','err'); return; }
   const side       = document.getElementById('manualSide').value;
+  if(!passManualGuard(side)) return;
   const orderType  = document.getElementById('manualOrderType').value;
   const entryPriceEst = lastPrice||1;
   const qty        = resolveQty('manual', entryPriceEst);
@@ -3261,7 +3308,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-13.31';
+const BUILD = '2026-06-14.32';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
