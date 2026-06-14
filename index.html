@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+l<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
@@ -1313,18 +1313,65 @@ function renderArmedBots(){
     }
     src += phaseTag;
     const tradeTag = b.activeTrade ? ` · <span style="color:var(--warn)">IN TRADE ${b.activeTrade.side}</span>` : '';
+    const exits = (b.activeTrade && b.activeTrade.customExits) || [];
+    const exitsLine = exits.length
+      ? `<div style="margin-top:3px;padding-left:4px;border-left:2px solid var(--accent2);">${exits.map((r,i)=>`<div style="color:var(--accent2);font-size:9px;">📜 ${r.label||'exit rule'} <span onclick="removeLiveExit(${b.id},${i})" style="color:var(--danger);cursor:pointer;">✕</span></div>`).join('')}</div>`
+      : '';
     return `
-    <div style="display:flex;align-items:center;justify-content:space-between;background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:4px 7px;margin-bottom:4px;font-family:var(--font-mono);font-size:10px;">
-      <div>
-        <span style="color:var(--accent);font-weight:700;">BOT #${b.id}</span>
-        <span style="color:var(--muted);"> ${b.dir} ${src} [${b.trigTf}] ${b.leverage>1?b.leverage+'×':''}</span>${tradeTag}
+    <div style="background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:4px 7px;margin-bottom:4px;font-family:var(--font-mono);font-size:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <span style="color:var(--accent);font-weight:700;">BOT #${b.id}</span>
+          <span style="color:var(--muted);"> ${b.dir} ${src} [${b.trigTf}] ${b.leverage>1?b.leverage+'×':''}</span>${tradeTag}
+        </div>
+        <div style="display:flex;gap:8px;flex-shrink:0;">
+          ${b.activeTrade ? `<button onclick="openLiveExitDialog(${b.id})" style="background:none;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;font-size:10px;padding:4px 8px;cursor:pointer;">+ Exit rule</button>` : ''}
+          ${!b.activeTrade ? `<button onclick="editBot(${b.id})" style="background:none;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;font-size:11px;padding:4px 9px;cursor:pointer;">✎</button>` : ''}
+          <button onclick="disarmBot(${b.id})" style="background:none;border:1px solid var(--danger);color:var(--danger);border-radius:4px;font-size:11px;padding:4px 9px;cursor:pointer;">✕</button>
+        </div>
       </div>
-      <div style="display:flex;gap:12px;flex-shrink:0;">
-        ${!b.activeTrade ? `<button onclick="editBot(${b.id})" style="background:none;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;font-size:11px;padding:4px 9px;cursor:pointer;">✎</button>` : ''}
-        <button onclick="disarmBot(${b.id})" style="background:none;border:1px solid var(--danger);color:var(--danger);border-radius:4px;font-size:11px;padding:4px 9px;cursor:pointer;">✕</button>
-      </div>
+      ${exitsLine}
     </div>`;
   }).join('');
+}
+
+// ── Attach an exit rule to an ALREADY-OPEN trade ──
+async function openLiveExitDialog(botId){
+  const text = prompt('Exit rule for this open trade (plain English):\\n\\ne.g. "if a 4h candle closes below line 3 then retests and closes below, close the trade"');
+  if(text===null || !text.trim()) return;
+  try{
+    const lines = trendLines.map(t=>({id:t.id, isHoriz:!!t.isHoriz, horizPrice:t.horizPrice, p1:t.p1, p2:t.p2}));
+    const r = await fetch(PROXY+'/bot/parse-exit',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({text:text.trim(), lines})});
+    if(r.status===401){ handleAuthFailure(); return; }
+    const d = await r.json();
+    if(!d.ok){
+      if(d.needsClarification) alert('Need more detail: '+(d.reason||'')+'\\n\\nTry again with that added.');
+      else alert(d.reason||"Couldn't understand that as an exit rule. Try rephrasing.");
+      return;
+    }
+    // For failed-retest, ask whether the break is already confirmed (price already past the line)
+    if(d.kind==='failed_retest'){
+      d.breakAlreadyConfirmed = confirm(`Failed-retest rule:\\n${d.label}\\n\\nIs price ALREADY past the line right now (break already happened)?\\n\\nOK = yes, watch for the rejection now.\\nCancel = no, wait for a fresh break first.`);
+    } else {
+      if(!confirm(`Add this exit rule to the open trade?\\n\\n${d.label}`)) return;
+    }
+    const sr = await fetch(PROXY+'/bot/set-exits',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({botId, rules:[d]})});
+    const sd = await sr.json();
+    if(sd.ok){ log(`Exit rule attached to Bot #${botId}: ${d.label}`,'ok'); pollBotStatus(); }
+    else log('Failed to attach exit rule: '+(sd.error||'unknown'),'err');
+  }catch(e){ log('Exit rule error: '+e.message,'err'); }
+}
+async function removeLiveExit(botId, idx){
+  const bot = serverBots.find(b=>b.id===botId);
+  if(!bot || !bot.activeTrade) return;
+  const rules = (bot.activeTrade.customExits||[]).slice();
+  rules.splice(idx,1);
+  if(!confirm('Remove this exit rule from the open trade?')) return;
+  try{
+    const r = await fetch(PROXY+'/bot/set-exits',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({botId, rules, replace:true})});
+    const d = await r.json();
+    if(d.ok){ log('Exit rule removed.','ok'); pollBotStatus(); }
+  }catch(e){ log('Error: '+e.message,'err'); }
 }
 setInterval(pollBotStatus, 10000);
 const FUTURES_BASE  = 'https://contract.mexc.com';  // futures REST
@@ -3424,7 +3471,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.38';
+const BUILD = '2026-06-14.39';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
