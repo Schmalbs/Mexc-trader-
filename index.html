@@ -1,4 +1,4 @@
-l<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
@@ -2767,7 +2767,7 @@ function cancelEditBot(){
 
 // ── CUSTOM EXIT RULES (plain-English → confirmed structured rule) ──
 let stagedExitRules = [];
-const TF_LABEL = { Min5:'5m', Min15:'15m', Min30:'30m', Min60:'1h', Hour4:'4h', Day1:'1D' };
+const TF_LABEL = { Min5:'5m', Min15:'15m', Min30:'30m', Min60:'1h', Hour4:'4h', Day1:'1D', Week1:'1W' };
 
 async function parseExitRule(){
   const text = document.getElementById('exitRuleText').value.trim();
@@ -2792,13 +2792,20 @@ async function parseExitRule(){
     }
     // Show confirmation card
     const lvlTxt = d.lineId!=null ? `line #${d.lineId}` : `$${(+d.level).toLocaleString()}`;
-    const tf = TF_LABEL[d.tf]||d.tf;
+    const tf = (Array.isArray(d.tfs) && d.tfs.length)
+      ? d.tfs.map(x=>TF_LABEL[x]||x).join(' / ')
+      : (TF_LABEL[d.tf]||d.tf);
     let desc;
     if(d.kind==='failed_retest'){
       const pct = d.retestPct!=null ? d.retestPct : 0.1;
-      desc = `<b>Failed retest:</b> first a <b>${tf}</b> candle closes <b>${d.operator}</b> ${lvlTxt}, then a later ${tf} candle wicks back to within ${pct}% of it (or touches it) but closes <b>${d.operator}</b> again → close.`;
+      const tfWord = (Array.isArray(d.tfs)&&d.tfs.length) ? `any of ${tf}` : tf;
+      desc = `<b>Failed retest</b> (${tfWord}): first a candle closes <b>${d.operator}</b> ${lvlTxt}, then a later candle wicks back to within ${pct}% (or touches it) but closes <b>${d.operator}</b> again → close.`;
+    } else if(d.onceOnly){
+      desc = `<b>One-shot:</b> if the <b>next ${tf}</b> candle closes <b>${d.operator}</b> ${lvlTxt}, close the trade. If it doesn't, the rule is cancelled.`;
+    } else if(Array.isArray(d.tfs) && d.tfs.length){
+      desc = `Close when a candle on <b>any of ${tf}</b> closes <b>${d.operator}</b> ${lvlTxt} (ongoing, checked per timeframe).`;
     } else {
-      desc = `Close when a <b>${tf}</b> candle closes <b>${d.operator}</b> ${lvlTxt}.`;
+      desc = `Close when <b>any ${tf}</b> candle closes <b>${d.operator}</b> ${lvlTxt} (ongoing).`;
     }
     document.getElementById('exitRulePreview').style.display='block';
     document.getElementById('exitRulePreview').innerHTML = `
@@ -3471,7 +3478,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.39';
+const BUILD = '2026-06-14.41';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
