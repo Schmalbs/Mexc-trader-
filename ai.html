@@ -118,9 +118,9 @@
     <button class="btn" onclick="toggleChart('pattern')" id="chartbtn-pattern"
       style="margin-top:8px;background:var(--panel);border:1px solid var(--border);color:var(--muted);">📈 Show chart + AI lines</button>
     <div id="chart-pattern" style="display:none;height:300px;margin-top:8px;border:1px solid var(--border);border-radius:6px;overflow:hidden;"></div>
+    <div id="opentrade-pattern" style="display:none;margin-top:8px;"></div>
     <div class="stats" id="stats-pattern" style="display:none;">
-      <span>P&amp;L <b id="pnl-pattern">$0.00</b></span>
-      <span>Position <b id="pos-pattern">none</b></span>
+      <span>Realized P&amp;L <b id="pnl-pattern">$0.00</b></span>
     </div>
     <div class="decisions" id="dec-pattern"></div>
   </div>
@@ -522,8 +522,7 @@ async function pollBot(name){
     const pnlEl = document.getElementById('pnl-'+name);
     pnlEl.textContent = `${d.realizedPnl>=0?'+':''}$${(d.realizedPnl||0).toFixed(2)}${d.paper?' 📝':''}`;
     pnlEl.style.color = d.realizedPnl>0?'var(--accent)':d.realizedPnl<0?'var(--danger)':'var(--text)';
-    document.getElementById('pos-'+name).textContent = d.position
-      ? `${d.position.side} @ $${d.position.entryPrice}` : 'none';
+    if(name==='pattern') renderOpenTrade(d);
     if(name==='pattern'){
       const sw = document.getElementById('swing-pattern');
       if(sw && d.swingMode!=null && document.activeElement!==sw) sw.checked = !!d.swingMode;
@@ -551,6 +550,41 @@ setInterval(()=>{
   if(botCharts['pattern'] && document.getElementById('chart-pattern').style.display!=='none')
     refreshBotChart('pattern');
 }, 30000);
+
+function renderOpenTrade(d){
+  const box = document.getElementById('opentrade-pattern');
+  if(!box) return;
+  const p = d.position;
+  if(!p){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='block';
+  const cur = d.currentPrice || p.entryPrice;
+  const cs = d.contractSize || 0.0001;
+  const dir = p.side==='BUY' ? 1 : -1;
+  const pnl = (cur - p.entryPrice) * p.qty * cs * dir;
+  const riskDist = p.slPrice ? Math.abs(p.entryPrice - p.slPrice) : null;
+  const rNow = riskDist ? ((cur - p.entryPrice)*dir / riskDist) : null;
+  const pnlCol = pnl>=0 ? 'var(--accent)' : 'var(--danger)';
+  const sideCol = p.side==='BUY' ? 'var(--accent)' : 'var(--danger)';
+  // distance to TP / SL as %
+  const toTp = p.tpPrice ? ((p.tpPrice - cur)/cur*100*dir) : null;
+  const toSl = p.slPrice ? ((cur - p.slPrice)/cur*100*dir) : null;
+  const paperTag = d.paper ? '<span style="font-size:9px;background:rgba(245,166,35,.15);color:var(--warn);padding:2px 6px;border-radius:3px;margin-left:6px;">PAPER</span>' : '<span style="font-size:9px;background:rgba(255,46,99,.15);color:var(--danger);padding:2px 6px;border-radius:3px;margin-left:6px;">LIVE</span>';
+  box.innerHTML = `
+    <div style="border:1px solid ${sideCol};border-radius:8px;padding:11px 13px;background:var(--bg2);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-weight:700;color:${sideCol};font-size:14px;">${p.side==='BUY'?'▲ LONG':'▼ SHORT'} OPEN${paperTag}</span>
+        <span style="font-weight:700;color:${pnlCol};font-size:15px;">${pnl>=0?'+':''}$${pnl.toFixed(2)}${rNow!=null?` <span style="font-size:11px;color:var(--muted)">(${rNow>=0?'+':''}${rNow.toFixed(2)}R)</span>`:''}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:11px;font-family:var(--font-mono);">
+        <div><div style="color:var(--muted)">Entry</div><div style="color:var(--text)">$${(+p.entryPrice).toFixed(1)}</div></div>
+        <div><div style="color:var(--muted)">Now</div><div style="color:var(--text)">$${(+cur).toFixed(1)}</div></div>
+        <div><div style="color:var(--muted)">Size</div><div style="color:var(--text)">${p.qty} @ ${p.leverage}×</div></div>
+        <div><div style="color:var(--muted)">Stop</div><div style="color:var(--danger)">$${p.slPrice?(+p.slPrice).toFixed(1):'—'}${toSl!=null?` <span style="color:var(--muted)">(${toSl.toFixed(2)}%)</span>`:''}</div></div>
+        <div><div style="color:var(--muted)">Target</div><div style="color:var(--accent)">$${p.tpPrice?(+p.tpPrice).toFixed(1):'—'}${toTp!=null?` <span style="color:var(--muted)">(${toTp.toFixed(2)}%)</span>`:''}</div></div>
+        <div><div style="color:var(--muted)">Opened</div><div style="color:var(--text)">${p.openedAt?new Date(p.openedAt).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}):'—'}</div></div>
+      </div>
+    </div>`;
+}
 
 let perfChart = null, perfSeries = null;
 function renderPerformance(d){
