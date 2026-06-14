@@ -569,7 +569,6 @@
           <div class="form-row">
             <div class="form-label">Select Line</div>
             <select id="triggerLineId">
-              <option value="all">All armed lines</option>
             </select>
           </div>
         </div>
@@ -704,7 +703,7 @@
           style="width:100%;margin-top:6px;display:none;background:rgba(61,127,255,.12);border:1px solid var(--accent2);color:var(--accent2);">
           ↻ RE-ARM PREVIOUS BOTS
         </button>
-        <button class="btn btn-danger" style="width:100%;margin-top:6px;display:none" id="disarmBtn" onclick="disarmBot()">■ DISARM ALL BOTS</button>
+        <button class="btn btn-danger" style="width:100%;margin-top:6px;display:none" id="disarmBtn" onclick="disarmBot()">■ DISARM ALL TRIGGER BOTS</button>
       </div>
     </div>
 
@@ -1275,7 +1274,7 @@ function renderArmedBots(){
     const phaseTag = b.phase==='retest' ? ' <span style="color:var(--warn)">⏳ break seen — awaiting retest</span>' : '';
     let src;
     if(b.triggerSource==='price') src = `price $${b.manualPrice}`;
-    else if(b.selectedLineId==='all') src = 'all lines (snapshot)';
+    else if(b.selectedLineId==='all') src = 'all lines (legacy bot — disarm & re-arm on a single line)';
     else {
       // Show the bot's SNAPSHOT level — the truth it actually trades on.
       const lvl = (b.triggerLevel!=null) ? `$${(+b.triggerLevel).toFixed(2)}` : 'line #'+b.selectedLineId;
@@ -2338,21 +2337,38 @@ function lineDragEnd(){
 function removeTrendLine(id){
   const idx=trendLines.findIndex(t=>t.id===id);
   if(idx===-1)return;
+  // Warn if an armed bot is using this exact line — deleting it here won't
+  // remove it from that bot's frozen snapshot (bots copy lines at arm time).
+  const usedByBot = serverBots && serverBots.some(b=>String(b.selectedLineId)===String(id));
+  if(usedByBot && !confirm('A bot is armed on this line. Deleting it here removes it from your chart, but the armed bot keeps its own copy until you disarm/re-arm it. Delete the line anyway?')) return;
   if(selectedLine && selectedLine.id===id){ selectedLine=null; updateLineHandles(); }
   try{chart.removeSeries(trendLines[idx].series);}catch{}
   trendLines.splice(idx,1);
-  saveLines();
+  purgeLinesEverywhere();
   removeLineLabel(id);
   renderTlList();
   updateLineTriggerSelect();
+  log(`Line #${id} deleted permanently.`,'ok');
+}
+
+// Hard-purge the current line set to BOTH stores so nothing lingers in memory.
+function purgeLinesEverywhere(){
+  const data = { lines: trendLines.map(t=>({id:t.id, p1:t.p1, p2:t.p2, isHoriz:!!t.isHoriz, horizPrice:t.horizPrice, color:t.color})) };
+  try{ localStorage.setItem('mexc_lines_'+currentSymbol, JSON.stringify(data)); }catch(e){}
+  if(authToken){
+    // overwrite server copy; if no lines remain, send an empty set explicitly
+    fetch(PROXY+'/lines/save',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({symbol: currentSymbol, data})}).catch(()=>{});
+  }
 }
 function clearAllLines(){
   selectedLine=null; updateLineHandles();
   trendLines.forEach(tl=>{try{chart.removeSeries(tl.series);}catch{}; removeLineLabel(tl.id);});
   trendLines=[];
-  saveLines();
+  purgeLinesEverywhere();
   renderTlList();
   updateLineTriggerSelect();
+  log('All lines cleared permanently.','ok');
 }
 function renderTlList(){
   const box=document.getElementById('tlList');
@@ -2808,7 +2824,7 @@ async function disarmBot(id){
       msg = `Disarm Bot #${id}?`;
     }
   } else {
-    msg = 'Disarm ALL bots? They will stop watching for entries and re-arm memory will be wiped.';
+    msg = 'Disarm ALL trigger bots?\n\nThey will stop watching for entries and re-arm memory will be wiped.\n\nThe pattern trader bot is separate and will NOT be affected.';
   }
   if(!confirm(msg)) return;
   // Intentional disarm → forget the config so re-arm won't offer it back
@@ -3309,7 +3325,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.33';
+const BUILD = '2026-06-14.35';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
