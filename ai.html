@@ -22,7 +22,7 @@
   .logo b{color:var(--accent);}
   .back-link{color:var(--accent2);text-decoration:none;font-family:var(--font-mono);font-size:11px;}
   .wrap{max-width:680px;margin:0 auto;padding:14px;}
-  .bot-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;}
+  .bot-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;box-sizing:border-box;max-width:100%;overflow-x:hidden;}
   .bot-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
   .bot-title{font-family:var(--font-mono);font-weight:700;font-size:13px;letter-spacing:.5px;}
   .pill{font-family:var(--font-mono);font-size:9px;padding:3px 9px;border-radius:99px;font-weight:700;}
@@ -86,7 +86,7 @@
     </div>
     <div id="sentiment-body">
       <p style="font-size:11px;color:var(--muted);margin:4px 0 8px;">A read on how key analysts are feeling, gathered live from the web. Sentiment is context — extremes often mark reversals, so weigh it, don't follow it.</p>
-      <div id="sentiment-cards"></div>
+      <div id="sentiment-cards" style="max-width:100%;overflow-x:hidden;"></div>
       <div id="sentiment-meta" style="font-size:10px;color:var(--muted);margin:8px 0;font-family:var(--font-mono);"></div>
       <button class="btn" id="sentiment-btn" onclick="refreshSentiment()" style="background:var(--accent2);color:#06281f;">↻ Refresh sentiment read</button>
     </div>
@@ -717,29 +717,39 @@ function renderSentiment(text){
   if(!Object.keys(blocks).length){ box.innerHTML = '<div style="font-size:12.5px;line-height:1.6;white-space:pre-wrap;color:var(--text);">'+clean.trim().replace(/</g,'&lt;')+'</div>'; return; }
   const analysts = ['COWEN','MMCRYPTO','SOLOWAY','PIZZINO','STAGOLL'];
   let html = '';
+  // Only these count as a lean badge — anything else stays in the body text.
+  const LEANS = ['BULLISH','BEARISH','NEUTRAL','MIXED','UNCERTAIN','CAUTIOUS','CAUTIOUSLY BULLISH','CAUTIOUSLY BEARISH'];
+  function extractLean(body){
+    const up = body.toUpperCase();
+    // find the longest known lean that appears at the very start
+    let found = '';
+    for(const L of LEANS){ if(up.startsWith(L) && L.length>found.length) found = L; }
+    if(found){
+      // strip the lean (and any following dash/space) from the body
+      let rest = body.slice(found.length).replace(/^[\s—\-:]+/,'').trim();
+      return { lean: found, rest };
+    }
+    // no recognised lean at the start → no badge, whole thing is body
+    return { lean:'', rest: body };
+  }
+
   order.filter(k=>blocks[k]).forEach(k=>{
-    const body = blocks[k];
-    // split "LEAN — explanation" so we can show the lean as a badge
-    const dash = body.indexOf('—');
-    const lean = dash>=0 ? body.slice(0,dash).trim() : '';
-    const rest = dash>=0 ? body.slice(dash+1).trim() : body;
+    const { lean, rest } = extractLean(blocks[k]);
     const isAnalyst = analysts.includes(k);
     const isOverall = k==='OVERALL';
-    const col = (isAnalyst||isOverall) ? leanColour(lean) : 'var(--muted)';
+    const col = (isAnalyst||isOverall) && lean ? leanColour(lean) : 'var(--muted)';
 
-    // Insert a divider + 'WHAT THEY'RE SAYING' heading before the first analyst,
-    // and a divider before the summary group (COMMUNITY/CONTRARIAN).
     if(k==='COWEN') html += '<div style="font-size:10px;letter-spacing:.5px;color:var(--muted);text-transform:uppercase;margin:14px 0 8px;border-top:1px solid var(--border);padding-top:12px;">What they\'re saying</div>';
     if(k==='COMMUNITY') html += '<div style="border-top:1px solid var(--border);margin:14px 0 10px;"></div>';
 
     const gap = isAnalyst ? 'margin-bottom:12px;' : 'margin-bottom:10px;';
     const bg = isOverall ? 'rgba(61,127,255,.08)' : 'var(--bg2)';
-    html += `<div style="background:${bg};border-left:3px solid ${col};border-radius:6px;padding:11px 13px;${gap}">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px;">
+    html += `<div style="background:${bg};border-left:3px solid ${col};border-radius:6px;padding:11px 13px;${gap}max-width:100%;box-sizing:border-box;overflow-wrap:anywhere;word-break:break-word;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:5px;flex-wrap:wrap;">
         <span style="font-size:12px;font-weight:700;color:var(--text);">${labels[k]||k}</span>
-        ${lean ? `<span style="font-size:10px;font-weight:700;color:${col};border:1px solid ${col};border-radius:4px;padding:2px 7px;white-space:nowrap;">${lean.toUpperCase()}</span>` : ''}
+        ${lean ? `<span style="font-size:10px;font-weight:700;color:${col};border:1px solid ${col};border-radius:4px;padding:2px 7px;white-space:nowrap;flex-shrink:0;">${lean}</span>` : ''}
       </div>
-      <div style="font-size:12.5px;color:var(--muted);line-height:1.55;">${rest.replace(/</g,'&lt;')}</div>
+      <div style="font-size:12.5px;color:var(--muted);line-height:1.55;overflow-wrap:anywhere;">${rest.replace(/</g,'&lt;')}</div>
     </div>`;
   });
   box.innerHTML = html;
