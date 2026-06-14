@@ -715,6 +715,16 @@
           % beyond line to count as a real break
         </label>
         <div style="border:1px solid var(--border);border-radius:7px;padding:9px;margin:8px 0;background:var(--bg2);">
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--accent);font-weight:700;margin-bottom:5px;">📓 TRADE JOURNAL & COMPANION (optional)</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px;line-height:1.4;">Write your reasoning before arming. Optionally get honest feedback from the companion, and save the conversation to the research library the pattern bot can learn from.</div>
+          <textarea id="journalText" rows="3" placeholder="Why this trade? Entry logic, invalidation, what would make you wrong..." style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:6px;font-family:var(--font-mono);font-size:11px;resize:vertical;"></textarea>
+          <div style="display:flex;gap:6px;margin-top:5px;">
+            <button class="btn" id="companionBtn" onclick="askCompanion()" style="flex:1;background:rgba(0,200,150,.12);border:1px solid var(--accent);color:var(--accent);font-size:11px;padding:6px;">💬 Get feedback</button>
+            <button class="btn" id="saveJournalBtn" onclick="saveJournalOnly()" style="flex:1;background:none;border:1px solid var(--border);color:var(--muted);font-size:11px;padding:6px;">Save note</button>
+          </div>
+          <div id="companionChat" style="margin-top:6px;"></div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:7px;padding:9px;margin:8px 0;background:var(--bg2);">
           <div style="font-family:var(--font-mono);font-size:10px;color:var(--accent2);font-weight:700;margin-bottom:5px;">📜 CUSTOM EXIT RULE (optional)</div>
           <div style="font-size:10px;color:var(--muted);margin-bottom:6px;line-height:1.4;">Plain English, e.g. "if a 4h candle closes below 63000, close the trade" or "close if 1h closes below line 3". Code enforces it — no AI in the live loop.</div>
           <textarea id="exitRuleText" rows="2" placeholder="Type an exit rule..." style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:6px;font-family:var(--font-mono);font-size:11px;resize:vertical;"></textarea>
@@ -2769,6 +2779,67 @@ function cancelEditBot(){
 let stagedExitRules = [];
 const TF_LABEL = { Min5:'5m', Min15:'15m', Min30:'30m', Min60:'1h', Hour4:'4h', Day1:'1D', Week1:'1W' };
 
+// ── TRADE JOURNAL & COMPANION ──
+let companionHistory = [];   // {role, text} for the current planning conversation
+let lastLibraryEntryId = null; // links this session's journal to the armed bot's outcome
+async function askCompanion(){
+  const plan = document.getElementById('journalText').value.trim();
+  if(!plan){ log('Write your trade reasoning first.','err'); return; }
+  const btn = document.getElementById('companionBtn');
+  btn.disabled = true; btn.textContent = '💬 Thinking…';
+  companionHistory.push({role:'user', text:plan});
+  try{
+    const r = await fetch(PROXY+'/companion/feedback',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({plan, history:companionHistory})});
+    if(r.status===401){ handleAuthFailure(); return; }
+    const d = await r.json();
+    if(d.error){ log('Companion error: '+d.error,'err'); return; }
+    companionHistory.push({role:'companion', text:d.feedback});
+    renderCompanionChat();
+    // auto-save this exchange to the research library and remember its id to link to the trade
+    try{
+      const lr = await fetch(PROXY+'/library/add',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),
+        body:JSON.stringify({plan, feedback:d.feedback, symbol:currentSymbol})});
+      const ld = await lr.json(); if(ld.entry) lastLibraryEntryId = ld.entry.id;
+    }catch(e){}
+    document.getElementById('journalText').value=''; // cleared; you can reply in the chat
+  }catch(e){ log('Companion error: '+e.message,'err'); }
+  finally{ btn.disabled=false; btn.textContent='💬 Get feedback'; }
+}
+function renderCompanionChat(){
+  const box = document.getElementById('companionChat');
+  if(!box) return;
+  if(!companionHistory.length){ box.innerHTML=''; return; }
+  box.innerHTML = companionHistory.map(m=>`
+    <div style="margin-bottom:6px;font-size:11px;line-height:1.45;">
+      <span style="font-weight:700;color:${m.role==='user'?'var(--accent2)':'var(--accent)'};">${m.role==='user'?'You':'Companion'}:</span>
+      <span style="color:var(--text);"> ${m.text.replace(/</g,'&lt;')}</span>
+    </div>`).join('')
+    + `<div style="display:flex;gap:6px;margin-top:4px;">
+        <input id="companionReply" placeholder="Reply to the companion..." style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:5px;font-size:11px;"/>
+        <button class="btn" onclick="replyCompanion()" style="background:rgba(0,200,150,.12);border:1px solid var(--accent);color:var(--accent);font-size:11px;padding:5px 10px;">Send</button>
+      </div>
+      <div style="font-size:9px;color:var(--muted);margin-top:4px;">💾 Saved to research library automatically.</div>`;
+}
+async function replyCompanion(){
+  const inp = document.getElementById('companionReply');
+  const txt = inp && inp.value.trim();
+  if(!txt) return;
+  document.getElementById('journalText').value = txt;
+  await askCompanion();
+}
+async function saveJournalOnly(){
+  const plan = document.getElementById('journalText').value.trim();
+  if(!plan){ log('Nothing to save.','err'); return; }
+  try{
+    const lr = await fetch(PROXY+'/library/add',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({plan, feedback:'', symbol:currentSymbol})});
+    const ld = await lr.json(); if(ld.entry) lastLibraryEntryId = ld.entry.id;
+    log('Note saved to research library. It will be tagged with this trade\'s outcome when you arm.','ok');
+    document.getElementById('journalText').value='';
+  }catch(e){ log('Save error: '+e.message,'err'); }
+}
+
 async function parseExitRule(){
   const text = document.getElementById('exitRuleText').value.trim();
   if(!text){ log('Type an exit rule first.','err'); return; }
@@ -2861,6 +2932,7 @@ async function armBot(){
     // actual entry price — more accurate than converting at arm time
     retestConfirm: document.getElementById('retestConfirm').checked,
     customExits: stagedExitRules.slice(),
+    linkLibraryEntryId: lastLibraryEntryId,  // links journal reasoning → trade outcome
     breakBufferPct: parseFloat(document.getElementById('breakBufferPct').value) || 0,
     qtyUsdt: (qtyModeState.bot==='usdt') ? (parseFloat(document.getElementById('botQtyUsdt').value)||100)
            : (qtyModeState.bot==='pct')  ? (getStartBalance() * (parseFloat(document.getElementById('botQtyPct').value)||10)/100)
@@ -2963,6 +3035,8 @@ ${editingBotId!=null ? 'This MODIFIES the existing bot — no new bot is added.'
   log(`Bot armed on ${trendLines.length} line(s)`,'ok');
   if(stagedExitRules.length){ log(`${stagedExitRules.length} custom exit rule(s) attached.`,'ok'); }
   stagedExitRules = []; renderStagedExits();
+  companionHistory = []; renderCompanionChat();
+  lastLibraryEntryId = null;
 }
 async function disarmBot(id){
   let msg;
@@ -3478,7 +3552,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.41';
+const BUILD = '2026-06-14.43';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
