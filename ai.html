@@ -695,8 +695,8 @@ function renderSentiment(text){
   applySentimentCollapse();
   const box = document.getElementById('sentiment-cards');
   if(!text){ box.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0;">No read yet — tap refresh to gather the latest.</div>'; return; }
-  const labels = { OVERALL:'📊 Overall', COWEN:'Benjamin Cowen', MMCRYPTO:'MMCrypto', DAAX:'DAAN (daax)', SOLOWAY:'Gareth Soloway', COMMUNITY:'🌐 Community (Trends)', CONTRARIAN:'⚠️ Contrarian note' };
-  const order = ['OVERALL','COWEN','MMCRYPTO','DAAX','SOLOWAY','COMMUNITY','CONTRARIAN'];
+  const labels = { OVERALL:'📊 Overall', COWEN:'Benjamin Cowen', MMCRYPTO:'MMCrypto', SOLOWAY:'Gareth Soloway', PIZZINO:'Jason Pizzino', STAGOLL:'Kyle Stagoll (Trader Daxx)', COMMUNITY:'🌐 Community (Trends)', CONTRARIAN:'⚠️ Contrarian note' };
+  const order = ['OVERALL','COWEN','MMCRYPTO','SOLOWAY','PIZZINO','STAGOLL','COMMUNITY','CONTRARIAN'];
   // Clean markdown noise the model sometimes adds (**, ---, leading #) so the
   // markers parse even when wrapped like **[COWEN]** or preceded by '--- '.
   let clean = text
@@ -704,7 +704,7 @@ function renderSentiment(text){
     .replace(/^#+\s*/gm,'')      // headings
     .replace(/-{2,}/g,'\n')      // --- separators → newline
     .replace(/\r/g,'');
-  const known = ['OVERALL','COWEN','MMCRYPTO','DAAX','SOLOWAY','COMMUNITY','CONTRARIAN'];
+  const known = ['OVERALL','COWEN','MMCRYPTO','SOLOWAY','PIZZINO','STAGOLL','COMMUNITY','CONTRARIAN'];
   const blocks = {};
   // Match [MARKER] anywhere, capture until the NEXT known marker (even mid-line).
   const re = new RegExp('\\[(' + known.join('|') + ')\\]\\s*([\\s\\S]*?)(?=\\[(?:' + known.join('|') + ')\\]|$)','g');
@@ -715,7 +715,7 @@ function renderSentiment(text){
   }
   // fallback: if nothing parsed, show cleaned text as readable paragraphs
   if(!Object.keys(blocks).length){ box.innerHTML = '<div style="font-size:12.5px;line-height:1.6;white-space:pre-wrap;color:var(--text);">'+clean.trim().replace(/</g,'&lt;')+'</div>'; return; }
-  const analysts = ['COWEN','MMCRYPTO','DAAX','SOLOWAY'];
+  const analysts = ['COWEN','MMCRYPTO','SOLOWAY','PIZZINO','STAGOLL'];
   let html = '';
   order.filter(k=>blocks[k]).forEach(k=>{
     const body = blocks[k];
