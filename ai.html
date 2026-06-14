@@ -75,23 +75,6 @@
 
 <div class="wrap">
 
-  <!-- ═══ MARKET SENTIMENT ═══ -->
-  <div class="bot-card" id="card-sentiment">
-    <div class="bot-header" onclick="toggleSentiment()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;">
-      <div class="bot-title">🌡️ MARKET SENTIMENT</div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <span id="sentiment-headline" style="font-size:11px;font-weight:700;"></span>
-        <span id="sentiment-caret" style="font-size:13px;color:var(--muted);">▼</span>
-      </div>
-    </div>
-    <div id="sentiment-body">
-      <p style="font-size:11px;color:var(--muted);margin:4px 0 8px;">A read on how key analysts are feeling, gathered live from the web. Sentiment is context — extremes often mark reversals, so weigh it, don't follow it.</p>
-      <div id="sentiment-cards" style="max-width:100%;overflow-x:hidden;"></div>
-      <div id="sentiment-meta" style="font-size:10px;color:var(--muted);margin:8px 0;font-family:var(--font-mono);"></div>
-      <button class="btn" id="sentiment-btn" onclick="refreshSentiment()" style="background:var(--accent2);color:#06281f;">↻ Refresh sentiment read</button>
-    </div>
-  </div>
-
   <!-- ═══ PATTERN BOT ═══ -->
   <div class="bot-card" id="card-pattern">
     <div class="bot-head">
@@ -430,7 +413,7 @@ async function doLogin(){
     authToken = d.token;
     localStorage.setItem('mexc_token', authToken);
     document.getElementById('loginOverlay').style.display='none';
-    loadJournal(); renderChat(); loadSentiment(); applySentimentCollapse();
+    loadJournal(); renderChat();
     pollAll();
   }catch(e){ alert('Server unreachable: '+e.message); }
 }
@@ -658,145 +641,7 @@ function renderPerformance(d){
   }).join('');
 }
 
-function leanColour(t){
-  t=(t||'').toUpperCase();
-  if(t.includes('BULL')) return 'var(--accent)';
-  if(t.includes('BEAR')) return 'var(--danger)';
-  if(t.includes('NO RECENT')) return '#5a6275';
-  return 'var(--warn)'; // neutral/mixed/uncertain
-}
-let sentimentLastAt = 0;
-let sentimentCollapsed = localStorage.getItem('sentimentCollapsed')!=='false'; // default collapsed
-function applySentimentCollapse(){
-  const body = document.getElementById('sentiment-body');
-  const caret = document.getElementById('sentiment-caret');
-  if(!body) return;
-  body.style.display = sentimentCollapsed ? 'none' : 'block';
-  if(caret) caret.textContent = sentimentCollapsed ? '▶' : '▼';
-}
-function toggleSentiment(){
-  sentimentCollapsed = !sentimentCollapsed;
-  localStorage.setItem('sentimentCollapsed', sentimentCollapsed);
-  applySentimentCollapse();
-}
-// Derive a one-line headline (overall lean + freshness) for the collapsed view
-function setSentimentHeadline(text){
-  const el = document.getElementById('sentiment-headline'); if(!el) return;
-  if(!text){ el.textContent=''; return; }
-  const m = text.match(/\[OVERALL\]\s*([A-Z\/ ]+)/i);
-  const lean = m ? m[1].trim().split(/\s/)[0] : '';
-  const fresh = /within 24h|FRESH|fresh 24h/i.test(text);
-  const col = leanColour(lean);
-  el.style.color = col;
-  el.textContent = lean ? (lean + (fresh?' · 🟢 fresh':'')) : '';
-}
-function renderSentiment(text){
-  setSentimentHeadline(text);
-  applySentimentCollapse();
-  const box = document.getElementById('sentiment-cards');
-  if(!text){ box.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0;">No read yet — tap refresh to gather the latest.</div>'; return; }
-  const labels = { OVERALL:'📊 Overall', COWEN:'Benjamin Cowen', MMCRYPTO:'MMCrypto', SOLOWAY:'Gareth Soloway', PIZZINO:'Jason Pizzino', STAGOLL:'Kyle Stagoll (Trader Daxx)', COMMUNITY:'🌐 Community (Trends)', CONTRARIAN:'⚠️ Contrarian note' };
-  const order = ['OVERALL','COWEN','MMCRYPTO','SOLOWAY','PIZZINO','STAGOLL','COMMUNITY','CONTRARIAN'];
-  // Clean markdown noise the model sometimes adds (**, ---, leading #) so the
-  // markers parse even when wrapped like **[COWEN]** or preceded by '--- '.
-  let clean = text
-    .replace(/\*\*/g,'')        // bold markers
-    .replace(/^#+\s*/gm,'')      // headings
-    .replace(/-{2,}/g,'\n')      // --- separators → newline
-    .replace(/\r/g,'');
-  const known = ['OVERALL','COWEN','MMCRYPTO','SOLOWAY','PIZZINO','STAGOLL','COMMUNITY','CONTRARIAN'];
-  const blocks = {};
-  // Match [MARKER] anywhere, capture until the NEXT known marker (even mid-line).
-  const re = new RegExp('\\[(' + known.join('|') + ')\\]\\s*([\\s\\S]*?)(?=\\[(?:' + known.join('|') + ')\\]|$)','g');
-  let m; while((m = re.exec(clean))){
-    // strip a trailing "— 1-2 sentences" style instruction echo if present
-    let body = m[2].trim().replace(/—?\s*\d+-\d+ sentences[,]?\s*(paraphrased[,]?\s*why)?\s*/ig,' ').replace(/\s{2,}/g,' ').trim();
-    blocks[m[1]] = body;
-  }
-  // fallback: if nothing parsed, show cleaned text as readable paragraphs
-  if(!Object.keys(blocks).length){ box.innerHTML = '<div style="font-size:12.5px;line-height:1.6;white-space:pre-wrap;color:var(--text);">'+clean.trim().replace(/</g,'&lt;')+'</div>'; return; }
-  const analysts = ['COWEN','MMCRYPTO','SOLOWAY','PIZZINO','STAGOLL'];
-  let html = '';
-  // Only these count as a lean badge — anything else stays in the body text.
-  const LEANS = ['BULLISH','BEARISH','NEUTRAL','MIXED','UNCERTAIN','CAUTIOUS','CAUTIOUSLY BULLISH','CAUTIOUSLY BEARISH'];
-  function extractLean(body){
-    const up = body.toUpperCase();
-    // find the longest known lean that appears at the very start
-    let found = '';
-    for(const L of LEANS){ if(up.startsWith(L) && L.length>found.length) found = L; }
-    if(found){
-      // strip the lean (and any following dash/space) from the body
-      let rest = body.slice(found.length).replace(/^[\s—\-:]+/,'').trim();
-      return { lean: found, rest };
-    }
-    // no recognised lean at the start → no badge, whole thing is body
-    return { lean:'', rest: body };
-  }
 
-  order.filter(k=>blocks[k]).forEach(k=>{
-    const { lean, rest } = extractLean(blocks[k]);
-    const isAnalyst = analysts.includes(k);
-    const isOverall = k==='OVERALL';
-    const col = (isAnalyst||isOverall) && lean ? leanColour(lean) : 'var(--muted)';
-
-    if(k==='COWEN') html += '<div style="font-size:10px;letter-spacing:.5px;color:var(--muted);text-transform:uppercase;margin:14px 0 8px;border-top:1px solid var(--border);padding-top:12px;">What they\'re saying</div>';
-    if(k==='COMMUNITY') html += '<div style="border-top:1px solid var(--border);margin:14px 0 10px;"></div>';
-
-    const gap = isAnalyst ? 'margin-bottom:12px;' : 'margin-bottom:10px;';
-    const bg = isOverall ? 'rgba(61,127,255,.08)' : 'var(--bg2)';
-    html += `<div style="background:${bg};border-left:3px solid ${col};border-radius:6px;padding:11px 13px;${gap}max-width:100%;box-sizing:border-box;overflow-wrap:anywhere;word-break:break-word;">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:5px;flex-wrap:wrap;">
-        <span style="font-size:12px;font-weight:700;color:var(--text);">${labels[k]||k}</span>
-        ${lean ? `<span style="font-size:10px;font-weight:700;color:${col};border:1px solid ${col};border-radius:4px;padding:2px 7px;white-space:nowrap;flex-shrink:0;">${lean}</span>` : ''}
-      </div>
-      <div style="font-size:12.5px;color:var(--muted);line-height:1.55;overflow-wrap:anywhere;">${rest.replace(/</g,'&lt;')}</div>
-    </div>`;
-  });
-  box.innerHTML = html;
-}
-async function loadSentiment(){
-  try{
-    const r = await fetch(PROXY+'/sentiment/get',{headers:authHeaders()});
-    if(!r.ok) return; const d = await r.json();
-    renderSentiment(d.text);
-    if(d.at){ sentimentLastAt = d.at; document.getElementById('sentiment-meta').textContent = 'Last updated: '+new Date(d.at).toLocaleString(); }
-  }catch(e){}
-}
-function timeSince(ts){
-  if(!ts) return null;
-  const s = Math.floor((Date.now()-ts)/1000);
-  if(s<60) return s+' seconds';
-  const m = Math.floor(s/60); if(m<60) return m+' minute'+(m===1?'':'s');
-  const h = Math.floor(m/60); if(h<24) return h+' hour'+(h===1?'':'s')+' '+(m%60)+' min';
-  const d = Math.floor(h/24); return d+' day'+(d===1?'':'s')+' '+(h%24)+' hr';
-}
-async function refreshSentiment(){
-  // Soft confirmation — tells you how long since the last refresh, but lets you proceed.
-  const since = timeSince(sentimentLastAt);
-  const msg = since
-    ? `Last sentiment refresh was ${since} ago.\n\nEach refresh runs live searches + an AI summary (small cost). Refresh again now?`
-    : `Run a fresh sentiment read? This runs live searches + an AI summary (small cost).`;
-  if(!confirm(msg)) return;
-  const btn = document.getElementById('sentiment-btn');
-  btn.disabled = true; btn.textContent = '⏳ Gathering (10-20s)…';
-  try{
-    const r = await fetch(PROXY+'/sentiment/refresh',{method:'POST',headers:authHeaders()});
-    if(r.status===401){ relogin(); return; }
-    const d = await r.json();
-    if(d.error){
-      sentimentCollapsed = false; applySentimentCollapse();
-      document.getElementById('sentiment-cards').innerHTML = `<div style="font-size:12px;color:var(--danger);background:rgba(255,46,99,.1);border:1px solid var(--danger);border-radius:6px;padding:10px;">Sentiment failed: ${d.error}<br><span style="color:var(--muted)">Tap refresh to try again.</span></div>`;
-      document.getElementById('sentiment-meta').textContent = '';
-    } else {
-      sentimentLastAt = d.at; renderSentiment(d.text);
-      document.getElementById('sentiment-meta').textContent = 'Last updated: '+new Date(d.at).toLocaleString();
-    }
-  }catch(e){
-    sentimentCollapsed = false; applySentimentCollapse();
-    document.getElementById('sentiment-cards').innerHTML = `<div style="font-size:12px;color:var(--danger);background:rgba(255,46,99,.1);border:1px solid var(--danger);border-radius:6px;padding:10px;">Couldn't reach the server: ${e.message}<br><span style="color:var(--muted)">Check connection and tap refresh.</span></div>`;
-  }
-  btn.disabled = false; btn.textContent = '↻ Refresh sentiment read';
-}
 
 function pollAll(){ pollBot('pattern'); }
 const _origPollAll_journal = true;
