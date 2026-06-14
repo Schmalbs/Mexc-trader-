@@ -77,11 +77,19 @@
 
   <!-- ═══ MARKET SENTIMENT ═══ -->
   <div class="bot-card" id="card-sentiment">
-    <div class="bot-header"><div class="bot-title">🌡️ MARKET SENTIMENT</div></div>
-    <p style="font-size:11px;color:var(--muted);margin:4px 0 8px;">A read on how key analysts are feeling, gathered live from the web. Sentiment is context — extremes often mark reversals, so weigh it, don't follow it.</p>
-    <div id="sentiment-cards"></div>
-    <div id="sentiment-meta" style="font-size:10px;color:var(--muted);margin:8px 0;font-family:var(--font-mono);"></div>
-    <button class="btn" id="sentiment-btn" onclick="refreshSentiment()" style="background:var(--accent2);color:#06281f;">↻ Refresh sentiment read</button>
+    <div class="bot-header" onclick="toggleSentiment()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;">
+      <div class="bot-title">🌡️ MARKET SENTIMENT</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span id="sentiment-headline" style="font-size:11px;font-weight:700;"></span>
+        <span id="sentiment-caret" style="font-size:13px;color:var(--muted);">▼</span>
+      </div>
+    </div>
+    <div id="sentiment-body">
+      <p style="font-size:11px;color:var(--muted);margin:4px 0 8px;">A read on how key analysts are feeling, gathered live from the web. Sentiment is context — extremes often mark reversals, so weigh it, don't follow it.</p>
+      <div id="sentiment-cards"></div>
+      <div id="sentiment-meta" style="font-size:10px;color:var(--muted);margin:8px 0;font-family:var(--font-mono);"></div>
+      <button class="btn" id="sentiment-btn" onclick="refreshSentiment()" style="background:var(--accent2);color:#06281f;">↻ Refresh sentiment read</button>
+    </div>
   </div>
 
   <!-- ═══ PATTERN BOT ═══ -->
@@ -422,7 +430,7 @@ async function doLogin(){
     authToken = d.token;
     localStorage.setItem('mexc_token', authToken);
     document.getElementById('loginOverlay').style.display='none';
-    loadJournal(); renderChat(); loadSentiment();
+    loadJournal(); renderChat(); loadSentiment(); applySentimentCollapse();
     pollAll();
   }catch(e){ alert('Server unreachable: '+e.message); }
 }
@@ -658,7 +666,33 @@ function leanColour(t){
   return 'var(--warn)'; // neutral/mixed/uncertain
 }
 let sentimentLastAt = 0;
+let sentimentCollapsed = localStorage.getItem('sentimentCollapsed')!=='false'; // default collapsed
+function applySentimentCollapse(){
+  const body = document.getElementById('sentiment-body');
+  const caret = document.getElementById('sentiment-caret');
+  if(!body) return;
+  body.style.display = sentimentCollapsed ? 'none' : 'block';
+  if(caret) caret.textContent = sentimentCollapsed ? '▶' : '▼';
+}
+function toggleSentiment(){
+  sentimentCollapsed = !sentimentCollapsed;
+  localStorage.setItem('sentimentCollapsed', sentimentCollapsed);
+  applySentimentCollapse();
+}
+// Derive a one-line headline (overall lean + freshness) for the collapsed view
+function setSentimentHeadline(text){
+  const el = document.getElementById('sentiment-headline'); if(!el) return;
+  if(!text){ el.textContent=''; return; }
+  const m = text.match(/\[OVERALL\]\s*([A-Z\/ ]+)/i);
+  const lean = m ? m[1].trim().split(/\s/)[0] : '';
+  const fresh = /within 24h|FRESH|fresh 24h/i.test(text);
+  const col = leanColour(lean);
+  el.style.color = col;
+  el.textContent = lean ? (lean + (fresh?' · 🟢 fresh':'')) : '';
+}
 function renderSentiment(text){
+  setSentimentHeadline(text);
+  applySentimentCollapse();
   const box = document.getElementById('sentiment-cards');
   if(!text){ box.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0;">No read yet — tap refresh to gather the latest.</div>'; return; }
   const labels = { OVERALL:'📊 Overall', COWEN:'Benjamin Cowen', MMCRYPTO:'MMCrypto', DAAX:'DAAN (daax)', SOLOWAY:'Gareth Soloway', COMMUNITY:'🌐 Community (Trends)', CONTRARIAN:'⚠️ Contrarian note' };
