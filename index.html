@@ -714,6 +714,14 @@
           <input type="number" id="breakBufferPct" value="0.1" step="0.05" min="0" style="width:56px;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:3px 6px;font-family:var(--font-mono);font-size:10px;"/>
           % beyond line to count as a real break
         </label>
+        <div style="border:1px solid var(--border);border-radius:7px;padding:9px;margin:8px 0;background:var(--bg2);">
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--accent2);font-weight:700;margin-bottom:5px;">📜 CUSTOM EXIT RULE (optional)</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px;line-height:1.4;">Plain English, e.g. "if a 4h candle closes below 63000, close the trade" or "close if 1h closes below line 3". Code enforces it — no AI in the live loop.</div>
+          <textarea id="exitRuleText" rows="2" placeholder="Type an exit rule..." style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:6px;font-family:var(--font-mono);font-size:11px;resize:vertical;"></textarea>
+          <button class="btn" id="parseExitBtn" onclick="parseExitRule()" style="width:100%;margin-top:5px;background:rgba(61,127,255,.12);border:1px solid var(--accent2);color:var(--accent2);font-size:11px;padding:6px;">Translate rule</button>
+          <div id="exitRulePreview" style="display:none;margin-top:6px;"></div>
+          <div id="stagedExitRules" style="margin-top:6px;"></div>
+        </div>
         <button class="btn btn-accent" style="width:100%;margin-top:4px" id="armBtn" onclick="armBot()">▶ ARM NEW BOT</button>
         <div id="armedBotsList" style="display:none;margin-top:8px;"></div>
         <button class="btn" id="rearmBtn" onclick="rearmSavedBots()"
@@ -2710,6 +2718,63 @@ function cancelEditBot(){
   if(banner) banner.style.display = 'none';
 }
 
+// ── CUSTOM EXIT RULES (plain-English → confirmed structured rule) ──
+let stagedExitRules = [];
+const TF_LABEL = { Min5:'5m', Min15:'15m', Min30:'30m', Min60:'1h', Hour4:'4h', Day1:'1D' };
+
+async function parseExitRule(){
+  const text = document.getElementById('exitRuleText').value.trim();
+  if(!text){ log('Type an exit rule first.','err'); return; }
+  if(stagedExitRules.length >= 5){ log('Max 5 exit rules.','err'); return; }
+  const btn = document.getElementById('parseExitBtn');
+  btn.disabled = true; btn.textContent = 'Translating…';
+  try{
+    const lines = trendLines.map(t=>({id:t.id, isHoriz:!!t.isHoriz, horizPrice:t.horizPrice, p1:t.p1, p2:t.p2}));
+    const r = await fetch(PROXY+'/bot/parse-exit',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({text, lines})});
+    if(r.status===401){ handleAuthFailure(); return; }
+    const d = await r.json();
+    if(!d.ok){
+      document.getElementById('exitRulePreview').style.display='block';
+      document.getElementById('exitRulePreview').innerHTML = `<div style="font-size:10px;color:var(--danger);">Couldn't parse: ${d.reason||'unclear'}. Try rephrasing.</div>`;
+      return;
+    }
+    // Show confirmation card
+    const lvlTxt = d.lineId!=null ? `line #${d.lineId}` : `$${(+d.level).toLocaleString()}`;
+    document.getElementById('exitRulePreview').style.display='block';
+    document.getElementById('exitRulePreview').innerHTML = `
+      <div style="border:1px solid var(--accent2);border-radius:6px;padding:8px;background:rgba(61,127,255,.08);">
+        <div style="font-size:11px;color:var(--text);margin-bottom:6px;">Close when a <b>${TF_LABEL[d.tf]||d.tf}</b> candle closes <b>${d.operator}</b> ${lvlTxt}.</div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn" onclick='confirmExitRule(${JSON.stringify(d).replace(/'/g,"&#39;")})' style="flex:1;background:var(--accent);color:#06281f;font-size:10px;padding:5px;">✓ Add rule</button>
+          <button class="btn" onclick="document.getElementById('exitRulePreview').style.display='none'" style="flex:1;font-size:10px;padding:5px;">Cancel</button>
+        </div>
+      </div>`;
+  }catch(e){
+    document.getElementById('exitRulePreview').style.display='block';
+    document.getElementById('exitRulePreview').innerHTML = `<div style="font-size:10px;color:var(--danger);">Error: ${e.message}</div>`;
+  }finally{
+    btn.disabled = false; btn.textContent = 'Translate rule';
+  }
+}
+function confirmExitRule(rule){
+  stagedExitRules.push(rule);
+  document.getElementById('exitRulePreview').style.display='none';
+  document.getElementById('exitRuleText').value='';
+  renderStagedExits();
+  log(`Exit rule added: ${rule.label}`,'ok');
+}
+function removeStagedExit(i){ stagedExitRules.splice(i,1); renderStagedExits(); }
+function renderStagedExits(){
+  const box = document.getElementById('stagedExitRules');
+  if(!box) return;
+  if(!stagedExitRules.length){ box.innerHTML=''; return; }
+  box.innerHTML = '<div style="font-size:9px;color:var(--muted);margin-bottom:3px;">RULES ON NEXT ARM:</div>' + stagedExitRules.map((r,i)=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 7px;margin-bottom:3px;font-size:10px;font-family:var(--font-mono);">
+      <span style="color:var(--text);">${r.label}</span>
+      <span onclick="removeStagedExit(${i})" style="color:var(--danger);cursor:pointer;font-weight:700;padding-left:8px;">✕</span>
+    </div>`).join('');
+}
+
 async function armBot(){
   if(!authToken){ log('Log in first.','err'); return; }
   if(triggerSource==='line' && !trendLines.length){ log('Draw at least one trend line first.','err'); return; }
@@ -2728,6 +2793,7 @@ async function armBot(){
     // USDT sizing: server converts to contracts AT TRIGGER TIME using the
     // actual entry price — more accurate than converting at arm time
     retestConfirm: document.getElementById('retestConfirm').checked,
+    customExits: stagedExitRules.slice(),
     breakBufferPct: parseFloat(document.getElementById('breakBufferPct').value) || 0,
     qtyUsdt: (qtyModeState.bot==='usdt') ? (parseFloat(document.getElementById('botQtyUsdt').value)||100)
            : (qtyModeState.bot==='pct')  ? (getStartBalance() * (parseFloat(document.getElementById('botQtyPct').value)||10)/100)
@@ -2828,6 +2894,8 @@ ${editingBotId!=null ? 'This MODIFIES the existing bot — no new bot is added.'
   document.getElementById('connPill').className='pill pill-green';
   document.getElementById('connPill').textContent='● BOT ARMED';
   log(`Bot armed on ${trendLines.length} line(s)`,'ok');
+  if(stagedExitRules.length){ log(`${stagedExitRules.length} custom exit rule(s) attached.`,'ok'); }
+  stagedExitRules = []; renderStagedExits();
 }
 async function disarmBot(id){
   let msg;
@@ -3343,7 +3411,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.36';
+const BUILD = '2026-06-14.37';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
