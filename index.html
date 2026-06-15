@@ -427,6 +427,12 @@
     <!-- MANUAL TRADE -->
     <div class="panel-section">
       <div class="panel-title">Manual Trade</div>
+      <!-- LIVE / PAPER mode toggle -->
+      <div id="tradeModeToggle" style="display:flex;gap:0;margin-bottom:8px;border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+        <button id="modeLiveBtn" onclick="setTradeMode('live')" style="flex:1;padding:7px;font-family:var(--font-mono);font-size:11px;font-weight:700;border:none;cursor:pointer;background:var(--danger);color:#fff;">💸 LIVE</button>
+        <button id="modePaperBtn" onclick="setTradeMode('paper')" style="flex:1;padding:7px;font-family:var(--font-mono);font-size:11px;font-weight:700;border:none;cursor:pointer;background:transparent;color:var(--muted);">📝 PAPER</button>
+      </div>
+      <div id="paperModeBanner" style="display:none;font-family:var(--font-mono);font-size:10px;color:var(--accent2);background:rgba(61,127,255,.1);border:1px solid var(--accent2);border-radius:5px;padding:5px 8px;margin-bottom:8px;text-align:center;">📝 PAPER MODE — trades are simulated, no real orders</div>
       <!-- Quick buttons -->
       <div class="quick-btns">
         <button class="btn btn-buy" onclick="quickTrade('BUY')">▲ QUICK BUY</button>
@@ -1069,6 +1075,25 @@ function applyColorToSelectedLine(color){
 let botArmed = false, watchInterval = null, lastPrice = null, openDay = null;
 let pnlOverlayOn = false;
 let activeTrade = null;
+// LIVE vs PAPER manual-trade mode. ALWAYS boots LIVE — paper is a deliberate
+// per-session choice, never remembered, so you can never unknowingly be in paper
+// mode after a reload (which would silently simulate trades you think are real).
+let tradeMode = 'live';
+function setTradeMode(mode){
+  tradeMode = mode;
+  const liveBtn = document.getElementById('modeLiveBtn');
+  const paperBtn = document.getElementById('modePaperBtn');
+  const banner = document.getElementById('paperModeBanner');
+  if(mode==='paper'){
+    if(paperBtn){ paperBtn.style.background='var(--accent2)'; paperBtn.style.color='#fff'; }
+    if(liveBtn){ liveBtn.style.background='transparent'; liveBtn.style.color='var(--muted)'; }
+    if(banner) banner.style.display='block';
+  } else {
+    if(liveBtn){ liveBtn.style.background='var(--danger)'; liveBtn.style.color='#fff'; }
+    if(paperBtn){ paperBtn.style.background='transparent'; paperBtn.style.color='var(--muted)'; }
+    if(banner) banner.style.display='none';
+  }
+}
 let lastTpCandleTime = null, lastSlCandleTime = null;
 let candleExitInterval = null;
 
@@ -1275,7 +1300,7 @@ function removeTpLevel(i){
 }
 
 // init
-document.addEventListener('DOMContentLoaded', ()=>{ renderTpLevels(); updateSlHint(); onDirChange(); setLineColorForTf(); initTfKeyDrag(); });
+document.addEventListener('DOMContentLoaded', ()=>{ renderTpLevels(); updateSlHint(); onDirChange(); setLineColorForTf(); initTfKeyDrag(); setTradeMode(tradeMode); });
 setInterval(updateSlHint, 3000); // stays accurate as trigger line/selection changes
 
 // ── SERVER BOT STATUS POLLING ──
@@ -1374,7 +1399,7 @@ async function pollBotStatus(){
     }
 
     // First server bot trade drives the chart overlay (back-compat)
-    const tradeBot = serverBots.find(b => b.activeTrade);
+    const tradeBot = serverBots.find(b => b.activeTrade && !b.paper);
     if(tradeBot){
       const at = tradeBot.activeTrade;
       activeTrade = {
@@ -2883,6 +2908,16 @@ The server will manage TP/SL exits from now on.`)) return;
   }catch(e){ log(`Adopt failed: ${e.message}`,'err'); }
 }
 
+async function closeServerBotTrade(botId){
+  if(!confirm('Close this paper trade?')) return;
+  try{
+    const r = await fetch(PROXY+'/trade/close',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({botId})});
+    const d = await r.json();
+    if(d.closed){ log('📝 Paper trade closed','ok'); pollBotStatus(); fetchOpenPositions(); }
+    else log('Close failed: '+JSON.stringify(d),'err');
+  }catch(e){ log('Close error: '+e.message,'err'); }
+}
+
 async function closeMexcPosition(symbol, positionType, totalVol, fraction, leverage){
   if(!authToken){ log('Log in first.','err'); return; }
   const vol = fraction>=0.999 ? totalVol : Math.max(1, Math.floor(totalVol*fraction));
@@ -3396,6 +3431,7 @@ async function checkTriggers(){
 // ── EXECUTE ENTRY ──────────────────────────────
 async function executeEntry({side,entryPrice,tpPrice,slPrice,qty,leverage=1,marginType='isolated',tpMode,slMode,tpTf,slTf,orderType}){
   if(!authToken){ log('Log in first.','err'); return; }
+  const paper = (tradeMode === 'paper');
   // Send to server — server manages the trade 24/7
   const leverageLabel0 = leverage>1 ? ` | ${leverage}× ${marginType}` : '';
   log(`${side} ${orderType}${leverageLabel0} | Qty:${qty} | Entry:$${entryPrice.toFixed(4)}`,'info');
@@ -3408,12 +3444,13 @@ async function executeEntry({side,entryPrice,tpPrice,slPrice,qty,leverage=1,marg
         tpMode, slMode,
         tpTf: TF_MAP[tpTf]||'Min15', slTf: TF_MAP[slTf]||'Min15',
         orderType, limitPrice: orderType==='LIMIT'?entryPrice:0,
+        paper,
       })
     });
     const d = await r.json();
     if(d.success){
-      log(`✅ Order placed via server! ID:${d.orderId}`,'ok');
-      registerTrade({side,entryPrice,tpPrice,slPrice,qty,leverage,tpMode,slMode,tpTf,slTf,serverManaged:true});
+      log(`${paper?'📝 PAPER':'✅'} Order ${paper?'simulated':'placed'} via server! ID:${d.orderId}`,'ok');
+      registerTrade({side,entryPrice,tpPrice,slPrice,qty,leverage,tpMode,slMode,tpTf,slTf,serverManaged:true,paper});
     } else {
       log(`Order error: ${JSON.stringify(d)}`,'err');
     }
@@ -3585,6 +3622,42 @@ function renderTradesPanel(){
               🤝 Adopt — manage with current TP/SL settings
             </button>`;
       })()}
+    </div>`;
+  }
+
+  // ── PAPER trades (server-simulated, not on the exchange) ──
+  for(const b of serverBots){
+    if(!b.paper || !b.activeTrade) continue;
+    count++;
+    const at = b.activeTrade;
+    const isLong = (at.side==='BUY' || at.side==='long' || at.side==='LONG');
+    const entry  = parseFloat(at.entryPrice||0);
+    const lev    = parseInt(at.leverage||1);
+    const p      = lastPrice || entry;
+    const dir    = isLong ? 1 : -1;
+    const rawPct = entry>0 ? (p-entry)/entry*100*dir*lev : 0;
+    const pnlCls = rawPct>0?'pos':rawPct<0?'neg':'zero';
+    const fmt    = v => v<1?v.toFixed(6):v<100?v.toFixed(4):v.toFixed(2);
+    html += `
+    <div class="trade-card ${isLong?'buy-card':'sell-card'}" style="border-style:dashed;">
+      <div class="tc-header">
+        <div>
+          <div class="tc-side ${isLong?'buy':'sell'}">${isLong?'▲ LONG':'▼ SHORT'} <span style="font-size:9px;color:var(--accent2);border:1px solid var(--accent2);border-radius:3px;padding:0 4px;margin-left:4px;">📝 PAPER</span></div>
+          <div class="tc-symbol">${b.config.symbol} • simulated (Bot #${b.id})</div>
+        </div>
+        ${lev>1?`<span class="tc-lev">${lev}×</span>`:''}
+      </div>
+      <div class="tc-pnl ${pnlCls}">${rawPct>=0?'+':''}${rawPct.toFixed(2)}%</div>
+      <div class="tc-acct ${pnlCls}">paper position P&L</div>
+      <div class="tc-rows">
+        <div class="tc-row"><span class="tc-key">Entry</span><span class="tc-val">$${fmt(entry)}</span></div>
+        <div class="tc-row"><span class="tc-key">Current</span><span class="tc-val">$${fmt(p)}</span></div>
+        ${at.tpPrice?`<div class="tc-row"><span class="tc-key">TP</span><span class="tc-val">$${fmt(at.tpPrice)}</span></div>`:''}
+        ${at.slPrice?`<div class="tc-row"><span class="tc-key">SL</span><span class="tc-val">$${fmt(at.slPrice)}</span></div>`:''}
+      </div>
+      <div class="tc-close-row">
+        <button class="tc-close-btn full" onclick="closeServerBotTrade(${b.id})">Close paper trade</button>
+      </div>
     </div>`;
   }
 
@@ -3820,7 +3893,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.53';
+const BUILD = '2026-06-14.55';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
