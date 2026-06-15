@@ -327,7 +327,7 @@
 
     </div>
     <div id="chart"></div>
-    <div id="tfKey" style="position:absolute;top:8px;left:8px;z-index:5;background:rgba(10,14,23,.78);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-family:var(--font-mono);font-size:9px;line-height:1.6;pointer-events:none;backdrop-filter:blur(2px);"></div>
+    <div id="tfKey" style="position:absolute;top:8px;left:8px;z-index:14;background:rgba(10,14,23,.78);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-family:var(--font-mono);font-size:9px;line-height:1.6;backdrop-filter:blur(2px);touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;"></div>
     <div class="mode-indicator" id="modeIndicator">Long press on chart to start</div>
     <div id="drawInstruction"></div>
     <!-- Delete selected line button -->
@@ -1228,7 +1228,7 @@ function removeTpLevel(i){
 }
 
 // init
-document.addEventListener('DOMContentLoaded', ()=>{ renderTpLevels(); updateSlHint(); onDirChange(); setLineColorForTf(); });
+document.addEventListener('DOMContentLoaded', ()=>{ renderTpLevels(); updateSlHint(); onDirChange(); setLineColorForTf(); initTfKeyDrag(); });
 setInterval(updateSlHint, 3000); // stays accurate as trigger line/selection changes
 
 // ── SERVER BOT STATUS POLLING ──
@@ -2069,6 +2069,76 @@ function renderTfKey(){
         <span style="color:${active?'#fff':'var(--muted)'};font-weight:${active?700:400};">${lbl}</span>
       </div>`;
     }).join('');
+}
+
+// ── Make the timeframe key draggable via long-press ──
+// Long-press (~350ms) on the key to "pick it up", then drag to reposition.
+// stopPropagation ensures a press starting on the key never triggers chart drawing.
+// Position is remembered in localStorage so it stays where you park it.
+let tfKeyDrag = null, tfKeyPressTimer = null;
+function initTfKeyDrag(){
+  const el = document.getElementById('tfKey'); if(!el || el._dragInit) return;
+  el._dragInit = true;
+  // restore saved position
+  try{
+    const saved = JSON.parse(localStorage.getItem('tfKeyPos')||'null');
+    if(saved && typeof saved.left==='number' && typeof saved.top==='number'){
+      el.style.left = saved.left+'px'; el.style.top = saved.top+'px'; el.style.right='auto';
+    }
+  }catch(e){}
+
+  const getPoint = ev => ev.touches ? ev.touches[0] : ev;
+  const wrap = () => el.parentElement; // #chart container (positioning context)
+
+  function startPress(ev){
+    ev.stopPropagation();
+    const p = getPoint(ev);
+    const startX = p.clientX, startY = p.clientY;
+    // long-press to activate
+    tfKeyPressTimer = setTimeout(()=>{
+      const rect = el.getBoundingClientRect();
+      tfKeyDrag = { offX: startX - rect.left, offY: startY - rect.top };
+      el.style.cursor = 'grabbing';
+      el.style.opacity = '0.9';
+      if(navigator.vibrate) try{ navigator.vibrate(15); }catch(e){}
+    }, 350);
+    // if the finger moves more than ~10px before the timer fires, cancel activation
+    el._pressStart = {x:startX, y:startY};
+  }
+  function moveDrag(ev){
+    // cancel a pending long-press if the finger wandered (user wasn't trying to grab the key)
+    if(tfKeyPressTimer && !tfKeyDrag && el._pressStart){
+      const p = getPoint(ev);
+      if(Math.abs(p.clientX-el._pressStart.x)>10 || Math.abs(p.clientY-el._pressStart.y)>10){
+        clearTimeout(tfKeyPressTimer); tfKeyPressTimer=null;
+      }
+    }
+    if(!tfKeyDrag) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const p = getPoint(ev);
+    const wr = wrap().getBoundingClientRect();
+    let left = p.clientX - wr.left - tfKeyDrag.offX;
+    let top  = p.clientY - wr.top  - tfKeyDrag.offY;
+    // clamp within the chart container
+    left = Math.max(0, Math.min(left, wr.width  - el.offsetWidth));
+    top  = Math.max(0, Math.min(top,  wr.height - el.offsetHeight));
+    el.style.left = left+'px'; el.style.top = top+'px'; el.style.right='auto';
+  }
+  function endPress(ev){
+    if(tfKeyPressTimer){ clearTimeout(tfKeyPressTimer); tfKeyPressTimer=null; }
+    if(tfKeyDrag){
+      ev.stopPropagation();
+      tfKeyDrag = null;
+      el.style.cursor = 'grab'; el.style.opacity = '1';
+      try{ localStorage.setItem('tfKeyPos', JSON.stringify({left:parseFloat(el.style.left)||0, top:parseFloat(el.style.top)||0})); }catch(e){}
+    }
+  }
+  el.addEventListener('touchstart', startPress, {passive:false});
+  el.addEventListener('touchmove', moveDrag, {passive:false});
+  el.addEventListener('touchend', endPress);
+  el.addEventListener('mousedown', startPress);
+  window.addEventListener('mousemove', moveDrag);
+  window.addEventListener('mouseup', endPress);
 }
 function setLineColorForTf(){
   selectedLineColor = colorForTf(currentTf);
@@ -3667,7 +3737,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.50';
+const BUILD = '2026-06-14.51';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
