@@ -96,9 +96,6 @@
       <div class="field"><label>Decision TF</label>
         <select id="tf-pattern"><option value="Min15">15m</option><option value="Min60" selected>1h</option><option value="Hour4">4h</option></select>
       </div>
-      <div class="field"><label>Lines used</label>
-        <select id="lines-pattern"><option value="both" selected>AI + mine</option><option value="ai">AI only</option><option value="user">Mine only</option></select>
-      </div>
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin:8px 0;cursor:pointer;">
       <input type="checkbox" id="swing-pattern" onchange="setSwingMode()" style="accent-color:var(--accent2);width:16px;height:16px;"/>
@@ -108,11 +105,21 @@
       <input type="checkbox" id="library-pattern" onchange="setLibrary()" checked style="accent-color:var(--accent);width:16px;height:16px;"/>
       <span><b style="color:var(--text)">Use research library</b> — the bot reads your saved trade reasoning & companion feedback to lean toward your style. Off = ignore it.</span>
     </label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin:8px 0;cursor:pointer;">
+      <input type="checkbox" id="ailines-pattern" onchange="setAiLines()" style="accent-color:var(--warn);width:16px;height:16px;"/>
+      <span><b style="color:var(--text)">Use AI lines</b> — your drawn lines are always the authoritative S/R. With this ON, the bot may also add its own line (shown dotted) ONLY where there's an obvious gap you missed. OFF = the bot uses your lines only.</span>
+    </label>
     <button class="btn btn-start" id="start-pattern" onclick="startBot('pattern')">▶ START PATTERN BOT</button>
     <button class="btn btn-stop" id="stop-pattern" onclick="stopBot('pattern')">■ STOP</button>
     <button class="btn" onclick="toggleChart('pattern')" id="chartbtn-pattern"
       style="margin-top:8px;background:var(--panel);border:1px solid var(--border);color:var(--muted);">📈 Show chart + AI lines</button>
     <div id="chart-pattern" style="display:none;height:300px;margin-top:8px;border:1px solid var(--border);border-radius:6px;overflow:hidden;"></div>
+    <div id="chartkey-pattern" style="display:none;font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-top:5px;line-height:1.7;">
+      <b style="color:var(--text);">Lines:</b> solid = your S/R by strength —
+      <span style="color:#a855f7;">weekly</span> · <span style="color:#00c896;">daily</span> · <span style="color:#3d7fff;">4h</span> · <span style="color:#f5d020;">1h</span> · <span style="color:#fff;">≤15m</span>;
+      <span style="color:#f5a623;">dotted amber</span> = AI gap-fill S/R (only if "Use AI lines" is on);
+      <span style="color:#00e5ff;">cyan dashed</span> = AI pattern lines.
+    </div>
     <div id="opentrade-pattern" style="display:none;margin-top:8px;"></div>
     <div class="stats" id="stats-pattern" style="display:none;">
       <span>Realized P&amp;L <b id="pnl-pattern">$0.00</b></span>
@@ -280,6 +287,12 @@ let lwReady = false, lwQueue = [];
 function whenLw(fn){ lwReady ? fn() : lwQueue.push(fn); }
 
 // ── per-bot chart state ──
+// Map a user line's timeframe/colour to its strength colour (matches index.html)
+function userLineColor(L){
+  const byTf = {'1w':'#a855f7','1d':'#00c896','4h':'#3d7fff','1h':'#f5d020','15m':'#ffffff','5m':'#ffffff','1m':'#ffffff'};
+  if(L.tf && byTf[L.tf]) return byTf[L.tf];
+  return L.color || '#c9d1e0'; // fall back to stored colour
+}
 const botCharts = {}; // {name: {chart, candles, candleData, lineSeries:[], priceLines:[], tf}}
 
 function calcEmaJs(values, period){
@@ -291,12 +304,15 @@ function calcEmaJs(values, period){
 function toggleChart(name){
   const box = document.getElementById('chart-'+name);
   const btn = document.getElementById('chartbtn-'+name);
+  const key = document.getElementById('chartkey-'+name);
   if(box.style.display==='none'){
     box.style.display='block';
+    if(key) key.style.display='block';
     btn.textContent = '📉 Hide chart';
     whenLw(()=> initBotChart(name));
   } else {
     box.style.display='none';
+    if(key) key.style.display='none';
     btn.textContent = name==='pattern' ? '📈 Show chart + AI lines' : '📈 Show chart + strategy';
   }
 }
@@ -380,19 +396,27 @@ function drawOverlays(name, st){
       (st.userLines||[]).forEach(L=>{
         if(L.isHoriz){
           bc.priceLines.push(bc.candles.createPriceLine({
-            price: L.horizPrice, color:'#c9d1e0', lineWidth:1, lineStyle:1,
+            price: L.horizPrice, color: userLineColor(L), lineWidth:2, lineStyle:0,
             title:'your line #'+(L.id!=null?L.id:'') }));
         } else if(L.p1 && L.p2){
           const pts = gridSegment(bc, L.p1, L.p2);
           if(pts.length<2) return;
           const s = bc.chart.addLineSeries({
-            color:'#c9d1e0', lineWidth:1, lineStyle:1,
+            color: userLineColor(L), lineWidth:2, lineStyle:0,
             priceLineVisible:false, lastValueVisible:true, title:'your trend #'+(L.id!=null?L.id:'') });
           s.setData(pts);
           bc.lineSeries.push(s);
         }
       });
     }
+    // AI gap-fill S/R lines (only when "use AI lines" is on) — DOTTED amber, so
+    // they read clearly as the AI's own levels distinct from your solid lines.
+    (st.aiSrLines||[]).forEach((L,i)=>{
+      if(typeof L.price !== 'number') return;
+      bc.priceLines.push(bc.candles.createPriceLine({
+        price:L.price, color:'#f5a623', lineWidth:1, lineStyle:1, // dotted
+        title:'AI: '+(L.label||'gap S/R') }));
+    });
     // AI-drawn pattern lines — one vibrant colour (cyan), thick & dashed, so all
     // the bot's lines read as one set, distinct from your dotted grey lines.
     (st.aiLines||[]).forEach((L,i)=>{
@@ -438,7 +462,7 @@ async function startBot(name){
   const allocation = parseFloat(document.getElementById('alloc-'+name).value)||100;
   if(!paper && !confirm(`⚠️ LIVE MODE — the ${name} bot will trade REAL money ($${allocation} allocation). Treat it as money you can lose entirely. Continue?`)) return;
   const body = { allocation, paper, decisionTf: document.getElementById('tf-'+name).value };
-  if(name==='pattern'){ body.lineSource = document.getElementById('lines-pattern').value; body.swingMode = document.getElementById('swing-pattern').checked; body.riskPct = parseFloat(document.getElementById('risk-pattern').value)||5; }
+  if(name==='pattern'){ body.useAiLines = document.getElementById('ailines-pattern').checked; body.swingMode = document.getElementById('swing-pattern').checked; body.riskPct = parseFloat(document.getElementById('risk-pattern').value)||5; }
   try{
     const r = await fetch(`${PROXY}/ai2/${name}/start`,{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
     if(r.status===401){ relogin(); return; }
@@ -448,6 +472,10 @@ async function startBot(name){
   }catch(e){ alert('Failed: '+e.message); }
 }
 
+async function setAiLines(){
+  const on = document.getElementById('ailines-pattern').checked;
+  try{ await fetch(PROXY+'/ai2/pattern/setmode',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({useAiLines:on})}); }catch(e){}
+}
 async function setLibrary(){
   const on = document.getElementById('library-pattern').checked;
   try{ await fetch(PROXY+'/library/toggle',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({enabled:on})}); }catch(e){}
@@ -538,6 +566,8 @@ async function pollBot(name){
     if(name==='pattern'){
       const sw = document.getElementById('swing-pattern');
       if(sw && d.swingMode!=null && document.activeElement!==sw) sw.checked = !!d.swingMode;
+      const al = document.getElementById('ailines-pattern');
+      if(al && d.useAiLines!=null && document.activeElement!==al) al.checked = !!d.useAiLines;
       const rk = document.getElementById('risk-pattern');
       if(rk && d.riskPct!=null && document.activeElement!==rk) rk.value = d.riskPct;
     }
