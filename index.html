@@ -687,6 +687,15 @@
           <button onclick="addTpLevel()" style="background:none;border:1px solid var(--accent);color:var(--accent);border-radius:3px;font-size:9px;padding:2px 7px;cursor:pointer;font-family:var(--font-mono);">+ Add TP</button>
         </div>
         <div id="tpLevelsContainer"></div>
+        <label style="display:flex;align-items:center;gap:6px;margin:6px 0 2px;font-family:var(--font-mono);font-size:10px;color:var(--muted);cursor:pointer;">
+          <input type="checkbox" id="tpUseLine" onchange="toggleTpLine()" style="accent-color:var(--accent);cursor:pointer;"/>
+          Use a drawn line as TP instead
+        </label>
+        <div class="form-row" id="botTpLineRow" style="display:none;">
+          <div class="form-label">TP line</div>
+          <select id="botTpLine"></select>
+          <div style="font-size:9px;color:var(--muted);margin-top:3px;">Horizontal = fixed target. Sloped = target trails along the line.</div>
+        </div>
         <div class="form-row" style="margin-top:4px;">
           <div class="form-label">Trigger</div>
           <select id="tpMode"><option value="price">Price hit</option><option value="candle">Candle close</option></select>
@@ -708,6 +717,12 @@
           <button class="ett-btn active-pct" id="botSlTypePct" onclick="setExitType('botSl','pct')">% entry</button>
           <button class="ett-btn"            id="botSlTypeMargin" onclick="setExitType('botSl','margin')">% margin</button>
           <button class="ett-btn"            id="botSlTypePrice" onclick="setExitType('botSl','price')">Price</button>
+          <button class="ett-btn"            id="botSlTypeLine" onclick="setExitType('botSl','line')">Line</button>
+        </div>
+        <div class="form-row" id="botSlLineRow" style="display:none;">
+          <div class="form-label">SL line</div>
+          <select id="botSlLine"></select>
+          <div style="font-size:9px;color:var(--muted);margin-top:3px;">Horizontal = fixed stop. Sloped = stop trails along the line.</div>
         </div>
         <div class="inline-row">
           <div class="form-row">
@@ -896,9 +911,11 @@ function setExitType(id, type){
   const pctBtn    = document.getElementById(id+'TypePct');
   const priceBtn  = document.getElementById(id+'TypePrice');
   const marginBtn = document.getElementById(id+'TypeMargin'); // only exists for botSl
+  const lineBtn   = document.getElementById(id+'TypeLine');   // only exists for botSl
   pctBtn.className   = 'ett-btn' + (type==='pct'   ? ' active-pct'   : '');
   priceBtn.className = 'ett-btn' + (type==='price' ? ' active-price' : '');
   if(marginBtn) marginBtn.className = 'ett-btn' + (type==='margin' ? ' active-pct' : '');
+  if(lineBtn)   lineBtn.className   = 'ett-btn' + (type==='line'   ? ' active-price' : '');
   const map = {
     manualTp: { pctInput:'manualTpPct', priceInput:'manualTpPrice', label:'manualTpValLabel', pctLabel:'TP %', priceLabel:'TP Price' },
     manualSl: { pctInput:'manualSlPct', priceInput:'manualSlPrice', label:'manualSlValLabel', pctLabel:'SL %', priceLabel:'SL Price' },
@@ -906,13 +923,43 @@ function setExitType(id, type){
     botSl:    { pctInput:'slPct',       priceInput:'botSlPrice',    label:'botSlValLabel',    pctLabel:'SL %', priceLabel:'SL Price' },
   };
   const m = map[id];
+  const isLine = (type==='line');
   // 'margin' mode shares the pct input — the % is of margin, not price
-  document.getElementById(m.pctInput).style.display   = (type==='pct'||type==='margin') ?'block':'none';
-  document.getElementById(m.priceInput).style.display = type==='price'?'block':'none';
+  document.getElementById(m.pctInput).style.display   = (!isLine && (type==='pct'||type==='margin')) ?'block':'none';
+  document.getElementById(m.priceInput).style.display = (!isLine && type==='price')?'block':'none';
   document.getElementById(m.label).textContent =
     type==='price' ? m.priceLabel :
-    type==='margin' ? 'SL % of margin' : m.pctLabel;
-  if(id==='botSl') updateSlHint();
+    type==='margin' ? 'SL % of margin' :
+    type==='line' ? 'SL line' : m.pctLabel;
+  // show/hide the SL line picker (botSl only)
+  if(id==='botSl'){
+    const row = document.getElementById('botSlLineRow');
+    if(row) row.style.display = isLine ? 'flex' : 'none';
+    if(isLine) populateExitLineSelect('botSlLine');
+    updateSlHint();
+  }
+}
+
+// Populate a line-picker <select> with the user's drawn lines (horizontal + sloped).
+function populateExitLineSelect(selectId){
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  const prev = sel.value;
+  const opts = trendLines.map(t=>{
+    const kind = t.isHoriz ? 'horizontal' : 'sloped';
+    const px = t.isHoriz ? (' @ $'+(+t.horizPrice).toFixed(0)) : '';
+    const tfL = t.tf ? ' ['+t.tf+']' : '';
+    return `<option value="${t.id}">Line #${t.id} — ${kind}${px}${tfL}</option>`;
+  });
+  sel.innerHTML = opts.length ? opts.join('') : '<option value="">(draw a line first)</option>';
+  if(prev) sel.value = prev;
+}
+
+function toggleTpLine(){
+  const on = document.getElementById('tpUseLine').checked;
+  const row = document.getElementById('botTpLineRow');
+  if(row) row.style.display = on ? 'flex' : 'none';
+  if(on) populateExitLineSelect('botTpLine');
 }
 
 function botEntryReference(){
@@ -1598,6 +1645,7 @@ async function fetchOpenPositions(){
     lastRealizedForStreak = realizedPnlDollars;
     localStorage.setItem('lastRealizedForStreak', String(realizedPnlDollars));
     renderTradesPanel();
+    drawTradeLevels();
   }catch(e){
     log(`Position fetch failed: ${e.message}`,'warn');
   }
@@ -1867,6 +1915,7 @@ async function loadCandles(attempt){
     chart.timeScale().fitContent();
     updatePrice(candles[candles.length-1].close);
     openDay = candles[0].open;
+    tradeLevelLines = []; try{ drawTradeLevels(); }catch(e){}
     log(`Loaded ${candles.length} candles for ${currentSymbol}`,'ok');
     // stale crosshair from previous TF would lie — hide it
     try{ document.getElementById('drawCrosshair').style.display='none'; crosshairVisible=false; }catch(e){}
@@ -2914,9 +2963,14 @@ function editBot(id){
   // SL
   setExitType('botSl', cfg.sl.type||'pct');
   if(cfg.sl.type==='price') document.getElementById('botSlPrice').value = cfg.sl.value||'';
+  else if(cfg.sl.type==='line'){ populateExitLineSelect('botSlLine'); if(cfg.sl.lineId) document.getElementById('botSlLine').value = cfg.sl.lineId; }
   else document.getElementById('slPct').value = cfg.sl.value||1;
   document.getElementById('slMode').value = cfg.sl.mode||'price';
   document.getElementById('slTf').value = TF_MAP_REV[cfg.sl.tf]||'15m';
+  // TP line restore
+  if(cfg.tp && cfg.tp.lineId){
+    const cb=document.getElementById('tpUseLine'); if(cb){ cb.checked=true; toggleTpLine(); document.getElementById('botTpLine').value = cfg.tp.lineId; }
+  }
   updateSlHint();
 
   // Switch the ARM button into update mode
@@ -3130,12 +3184,14 @@ async function armBot(){
       tf: TF_MAP[document.getElementById('tpTf').value]||'Min15',
       levels: tpLevels.map(t=>({type:t.type||'pct', pct:t.pct, price:t.price, size:t.size})),
       breakEvenOnHit: document.getElementById('breakEvenOnTp').checked,
+      lineId: (document.getElementById('tpUseLine') && document.getElementById('tpUseLine').checked && document.getElementById('botTpLine')) ? (document.getElementById('botTpLine').value||null) : null,
     },
     sl: {
       mode: document.getElementById('slMode').value,
       type: exitTypeState.botSl,
       value: exitTypeState.botSl==='price' ? parseFloat(document.getElementById('botSlPrice').value) : parseFloat(document.getElementById('slPct').value),
       tf: TF_MAP[document.getElementById('slTf').value]||'Min15',
+      lineId: (exitTypeState.botSl==='line' && document.getElementById('botSlLine')) ? (document.getElementById('botSlLine').value||null) : null,
     },
     // margin-based SL needs leverage to convert: priceMove% = marginPct / leverage
   };
@@ -3423,6 +3479,7 @@ function registerTrade(trade){
   activeTrade=trade;
   lastTpCandleTime=null; lastSlCandleTime=null;
   tradeCount++;
+  try{ drawTradeLevels(); }catch(e){}
   // Update side panel card
   document.getElementById('activeTradeCard').style.display='block';
   document.getElementById('atcSide').textContent=trade.side;
@@ -3435,6 +3492,32 @@ function registerTrade(trade){
   // exits are server-managed — no client-side exit polling
   updateAccountBadge(lastPrice);
   renderTradesPanel();
+}
+
+// ── Draw live trade SL/TP/entry as price lines on the main chart ──
+let tradeLevelLines = [];
+function clearTradeLevels(){
+  if(!candleSeries) return;
+  tradeLevelLines.forEach(pl=>{ try{ candleSeries.removePriceLine(pl); }catch(e){} });
+  tradeLevelLines = [];
+}
+function drawTradeLevels(){
+  if(!candleSeries) return;
+  clearTradeLevels();
+  if(!activeTrade) return; // only while in a position
+  const isLong = (activeTrade.side==='BUY' || activeTrade.side==='long' || activeTrade.side==='LONG');
+  const add = (price, color, title) => {
+    const p = parseFloat(price);
+    if(!p || isNaN(p)) return;
+    try{
+      tradeLevelLines.push(candleSeries.createPriceLine({
+        price:p, color, lineWidth:1, lineStyle:2 /*dashed*/, axisLabelVisible:true, title
+      }));
+    }catch(e){}
+  };
+  add(activeTrade.entryPrice, '#9aa4bf', `entry ${isLong?'L':'S'}`);
+  add(activeTrade.tpPrice, '#00c896', 'TP');
+  add(activeTrade.slPrice, '#ff4d6a', 'SL');
 }
 
 function renderTradesPanel(){
@@ -3737,7 +3820,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.51';
+const BUILD = '2026-06-14.53';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
