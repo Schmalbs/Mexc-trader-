@@ -245,6 +245,27 @@
 <body>
 
 <!-- ── LOGIN GATE ── -->
+<div id="modifyTradeModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(3px);">
+  <div style="background:var(--panel);border:1px solid var(--accent);border-radius:12px;max-width:380px;width:100%;padding:18px;max-height:88vh;overflow-y:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+      <div style="font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--text);">✏️ Modify Trade</div>
+      <button onclick="closeModifyTrade()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;">×</button>
+    </div>
+    <div id="modifyTradeInfo" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);margin-bottom:12px;"></div>
+    <div class="sub-label" style="margin-bottom:4px;">Take Profit levels</div>
+    <div id="modifyTpContainer"></div>
+    <button onclick="modifyAddTpLevel()" style="background:rgba(0,200,150,.12);border:1px solid var(--accent);color:var(--accent);border-radius:5px;font-size:10px;padding:4px 10px;cursor:pointer;margin:4px 0 12px;font-family:var(--font-mono);">+ Add TP level</button>
+    <div class="sub-label" style="margin-bottom:4px;">Stop Loss</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;">
+      <span class="tp-lbl">SL $</span>
+      <input type="number" id="modifySlPrice" min="0" step="0.01" placeholder="Stop price" style="width:100px;"/>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button onclick="closeModifyTrade()" style="flex:1;background:none;border:1px solid var(--border);color:var(--muted);border-radius:7px;padding:9px;font-family:var(--font-mono);font-size:12px;cursor:pointer;">Cancel</button>
+      <button onclick="submitModifyTrade()" style="flex:1;background:var(--accent);border:none;color:#000;border-radius:7px;padding:9px;font-family:var(--font-mono);font-weight:700;font-size:12px;cursor:pointer;">Apply changes</button>
+    </div>
+  </div>
+</div>
 <div id="lineTidyModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px);">
   <div style="background:var(--panel);border:1px solid var(--accent2);border-radius:12px;max-width:340px;padding:22px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.5);">
     <div style="font-size:30px;margin-bottom:10px;">📐</div>
@@ -1478,42 +1499,68 @@ function renderArmedBots(){
 }
 
 // ── Attach an exit rule to an ALREADY-OPEN trade ──
-async function openModifyTrade(botId){
+// ── MODIFY LIVE TRADE (dedicated panel with the real TP-level + SL widgets) ──
+let modifyTradeBotId = null;
+let modifyTpLevels = [];   // working copy of the live trade's TP levels
+function openModifyTrade(botId){
   const bot = serverBots.find(b=>b.id===botId);
   if(!bot || !bot.activeTrade){ log('No active trade.','err'); return; }
   const at = bot.activeTrade;
-  const curSl = at.slPrice!=null ? (+at.slPrice).toFixed(2) : '';
-  const curTp = at.tpPrice!=null ? (+at.tpPrice).toFixed(2) : '';
-  const body = { botId };
-
-  const newSl = prompt(`Move STOP LOSS\nEntry: $${(+at.entryPrice).toFixed(2)} (${at.side})\nCurrent SL: $${curSl}\n\nEnter new SL price (or leave blank to keep):`, curSl);
-  if(newSl===null) return; // cancelled
-  if(newSl.trim() && parseFloat(newSl)!==parseFloat(curSl)) body.slPrice = parseFloat(newSl);
-
-  const newTp = prompt(`Move TAKE PROFIT\nCurrent TP: $${curTp}\n\nEnter new TP price (or leave blank to keep):`, curTp);
-  if(newTp===null) return;
-  if(newTp.trim() && parseFloat(newTp)!==parseFloat(curTp)) body.tpPrice = parseFloat(newTp);
-
-  // TP level sizes (only if multi-level)
-  if(at.tpLevels && at.tpLevels.length){
-    const curSizes = at.tpLevels.map(l=>l.size).join(',');
-    const newSizes = prompt(`Close % at each TP level (comma-separated)\nCurrent: ${curSizes}\ne.g. "50,100" = sell 50% at TP1, rest at TP2\n\nEnter new sizes (or leave blank to keep):`, curSizes);
-    if(newSizes===null) return;
-    if(newSizes.trim() && newSizes!==curSizes){
-      body.levelSizes = newSizes.split(',').map(s=>parseFloat(s.trim())).filter(n=>!isNaN(n));
-    }
-  }
-
-  if(!body.slPrice && !body.tpPrice && !body.levelSizes){ log('No changes made.','info'); return; }
+  modifyTradeBotId = botId;
+  // working copy of TP levels (fall back to a single level from tpPrice)
+  modifyTpLevels = (at.tpLevels && at.tpLevels.length)
+    ? at.tpLevels.map(l=>({ type:l.type||'price', price:l.price!=null?l.price:at.tpPrice, pct:l.pct||2, size:l.size||100 }))
+    : [{ type:'price', price:at.tpPrice, pct:2, size:100 }];
+  document.getElementById('modifyTradeInfo').textContent =
+    `${at.side} @ $${(+at.entryPrice).toFixed(2)} · ${at.qty} contracts · ${at.leverage}× (entry, size & direction can't change)`;
+  document.getElementById('modifySlPrice').value = at.slPrice!=null ? (+at.slPrice).toFixed(2) : '';
+  renderModifyTp();
+  document.getElementById('modifyTradeModal').style.display = 'flex';
+}
+function closeModifyTrade(){
+  document.getElementById('modifyTradeModal').style.display = 'none';
+  modifyTradeBotId = null;
+}
+function renderModifyTp(){
+  const box = document.getElementById('modifyTpContainer');
+  if(!box) return;
+  box.innerHTML = modifyTpLevels.map((tp,i)=>`
+    <div class="tp-level-row">
+      <span class="tp-lbl">TP${i+1}</span>
+      <button onclick="modifyToggleTpType(${i})"
+        style="background:${tp.type==='price'?'rgba(61,127,255,.2)':'rgba(0,200,150,.15)'};border:1px solid ${tp.type==='price'?'var(--accent2)':'var(--accent)'};color:${tp.type==='price'?'var(--accent2)':'var(--accent)'};border-radius:3px;font-size:9px;padding:2px 5px;cursor:pointer;font-family:var(--font-mono);white-space:nowrap;">
+        ${tp.type==='pct'?'%':'$'}
+      </button>
+      ${tp.type==='pct'
+        ? `<input type="number" value="${tp.pct||2}" min="0.01" step="0.1" placeholder="%" style="width:55px;" oninput="modifyTpLevels[${i}].pct=parseFloat(this.value)||0"/>`
+        : `<input type="number" value="${tp.price||''}" min="0" step="0.01" placeholder="Price" style="width:72px;" oninput="modifyTpLevels[${i}].price=parseFloat(this.value)||0"/>`
+      }
+      <span class="tp-lbl">${tp.type==='pct'?'% |':'$|'}</span>
+      <input type="number" value="${tp.size||100}" min="1" max="100" step="1" placeholder="size%" style="width:48px;" oninput="modifyTpLevels[${i}].size=parseFloat(this.value)||100"/>
+      <span class="tp-lbl">%pos</span>
+      ${modifyTpLevels.length>1?`<button class="tp-del-btn" onclick="modifyRemoveTpLevel(${i})">✕</button>`:''}
+    </div>`).join('');
+}
+function modifyToggleTpType(i){ modifyTpLevels[i].type = modifyTpLevels[i].type==='pct'?'price':'pct'; renderModifyTp(); }
+function modifyAddTpLevel(){ const last=modifyTpLevels[modifyTpLevels.length-1]; modifyTpLevels.push({type:'price',price:null,pct:(last?.pct||2)*2,size:50}); renderModifyTp(); }
+function modifyRemoveTpLevel(i){ modifyTpLevels.splice(i,1); renderModifyTp(); }
+async function submitModifyTrade(){
+  if(modifyTradeBotId==null) return;
+  const body = { botId: modifyTradeBotId };
+  // SL
+  const slv = document.getElementById('modifySlPrice').value;
+  if(slv.trim()) body.slPrice = parseFloat(slv);
+  // TP levels — send the full edited set
+  body.tpLevels = modifyTpLevels.map(t=>({type:t.type, price:t.price, pct:t.pct, size:t.size}));
+  body.levelSizes = modifyTpLevels.map(t=>t.size);
+  // first level's price drives the primary tpPrice
+  const firstPrice = modifyTpLevels[0] && modifyTpLevels[0].type==='price' ? modifyTpLevels[0].price : null;
+  if(firstPrice) body.tpPrice = firstPrice;
   try{
     const r = await fetch(PROXY+'/bot/modify-trade',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
     const d = await r.json();
-    if(d.ok){
-      log(`✏️ Trade modified — SL $${(+d.slPrice).toFixed(2)} TP $${(+d.tpPrice).toFixed(2)}`,'ok');
-      pollBotStatus();
-    } else {
-      log('Modify failed: '+(d.error||'unknown'),'err');
-    }
+    if(d.ok){ log('✏️ Trade modified ✓','ok'); closeModifyTrade(); pollBotStatus(); }
+    else log('Modify failed: '+(d.error||'unknown'),'err');
   }catch(e){ log('Modify error: '+e.message,'err'); }
 }
 
@@ -3990,7 +4037,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.62';
+const BUILD = '2026-06-14.63';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
