@@ -608,10 +608,28 @@
         </div>
         <div class="form-row">
           <div class="form-label">Entry Direction</div>
-          <select id="triggerDir">
+          <select id="triggerDir" onchange="onDirChange()">
             <option value="above">Close ABOVE → BUY</option>
             <option value="below">Close BELOW → SELL</option>
+            <option value="swingLong">Swing LONG (support/SFP) → BUY</option>
+            <option value="swingShort">Swing SHORT (resistance/SFP) → SELL</option>
           </select>
+        </div>
+        <div id="swingConfig" style="display:none;border:1px solid var(--border);border-radius:7px;padding:9px;margin:8px 0;background:var(--bg2);">
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--accent);font-weight:700;margin-bottom:5px;">🎯 SWING MODE</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:7px;line-height:1.4;">Fires when the line is confirmed as support/resistance — a tested-and-rejected close, an SFP, a rejection wick, or a morning/evening star at the line.</div>
+          <div class="form-row" style="margin-bottom:7px;">
+            <div class="form-label">Detection</div>
+            <select id="swingMode">
+              <option value="mechanical">Mechanical (rules, free) — default</option>
+              <option value="ai">AI-judged (Claude assesses each setup)</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <div class="form-label">Proximity tolerance (%)</div>
+            <input type="number" id="swingTolPct" value="0.15" step="0.05" min="0" style="width:100%;"/>
+          </div>
+          <div style="font-size:9px;color:var(--muted);margin-top:4px;">How close a wick must come to the line to count as "testing" it.</div>
         </div>
         <div class="inline-row">
           <div class="form-row">
@@ -2719,6 +2737,9 @@ function editBot(id){
   setTriggerSource(cfg.triggerSource||'line');
   document.getElementById('triggerTf').value = TF_MAP_REV[cfg.trigTf]||'5m';
   document.getElementById('triggerDir').value = cfg.dir||'above';
+  if(document.getElementById('swingMode')) document.getElementById('swingMode').value = cfg.swingMode||'mechanical';
+  if(document.getElementById('swingTolPct')) document.getElementById('swingTolPct').value = cfg.swingTolPct!=null?cfg.swingTolPct:0.15;
+  onDirChange();
   if(cfg.triggerSource==='price') document.getElementById('triggerManualPrice').value = cfg.manualPrice||'';
   else document.getElementById('triggerLineId').value = cfg.selectedLineId||'';
 
@@ -2913,6 +2934,13 @@ function renderStagedExits(){
     </div>`).join('');
 }
 
+function onDirChange(){
+  const dir = document.getElementById('triggerDir').value;
+  const isSwing = dir==='swingLong' || dir==='swingShort';
+  const panel = document.getElementById('swingConfig');
+  if(panel) panel.style.display = isSwing ? 'block' : 'none';
+}
+
 async function armBot(){
   if(!authToken){ log('Log in first.','err'); return; }
   if(triggerSource==='line' && !trendLines.length){ log('Draw at least one trend line first.','err'); return; }
@@ -2923,6 +2951,8 @@ async function armBot(){
     symbol: currentSymbol,
     trigTf: TF_MAP[document.getElementById('triggerTf').value]||'Min15',
     dir: document.getElementById('triggerDir').value,
+    swingMode: document.getElementById('swingMode') ? document.getElementById('swingMode').value : 'mechanical',
+    swingTolPct: document.getElementById('swingTolPct') ? (parseFloat(document.getElementById('swingTolPct').value)||0.15) : 0.15,
     triggerSource: triggerSource,
     manualPrice: document.getElementById('triggerManualPrice').value,
     selectedLineId: document.getElementById('triggerLineId').value,
@@ -3046,7 +3076,8 @@ async function disarmBot(id){
       const trig = b.triggerSource==='price' ? `price $${b.manualPrice}`
         : (b.triggerLevel!=null ? `$${(+b.triggerLevel).toFixed(2)}` : `line #${b.selectedLineId}`);
       const size = b.config&&b.config.qtyUsdt ? `$${b.config.qtyUsdt}` : `${b.qty} contracts`;
-      msg = `DISARM BOT #${id}?\n\n${b.dir==='above'?'BUY above':'SELL below'} ${trig} [${b.trigTf}]\n${size} at ${b.leverage}×\n\nIt will stop watching for entries and be removed from re-arm memory.`;
+      const dirLabel = b.dir==='above'?'BUY above':b.dir==='below'?'SELL below':b.dir==='swingLong'?'Swing LONG at':b.dir==='swingShort'?'Swing SHORT at':b.dir;
+      msg = `DISARM BOT #${id}?\n\n${dirLabel} ${trig} [${b.trigTf}]\n${size} at ${b.leverage}×\n\nIt will stop watching for entries and be removed from re-arm memory.`;
     } else {
       msg = `Disarm Bot #${id}?`;
     }
@@ -3103,7 +3134,8 @@ async function checkTriggers(){
     if(candleTime===lastCandleTime) return;
     lastCandleTime=candleTime;
 
-    const side       = dir==='above'?'BUY':'SELL';
+    const side       = dir==='above'?'BUY':(dir==='below'?'SELL':null);
+    if(side===null) return; // swing modes are evaluated server-side only
     const qty        = resolveQty('bot', closePrice);
     const leverage   = parseInt(document.getElementById('botLeverage').value)||1;
     const marginType = document.getElementById('botMarginType').value;
@@ -3552,7 +3584,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.43';
+const BUILD = '2026-06-14.44';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
