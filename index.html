@@ -797,6 +797,7 @@
           style="width:100%;margin-top:6px;display:none;background:rgba(61,127,255,.12);border:1px solid var(--accent2);color:var(--accent2);">
           ↻ RE-ARM PREVIOUS BOTS
         </button>
+        <button class="btn" style="width:100%;margin-top:6px;display:none;border:1px solid var(--warn);color:var(--warn);background:none;" id="pauseTriggersBtn" onclick="toggleTriggerPause()">⏸️ PAUSE NEW ENTRIES</button>
         <button class="btn btn-danger" style="width:100%;margin-top:6px;display:none" id="disarmBtn" onclick="disarmBot()">■ DISARM ALL TRIGGER BOTS</button>
       </div>
     </div>
@@ -1410,6 +1411,15 @@ async function pollBotStatus(){
       botArmed = false;
     }
     document.getElementById('disarmBtn').style.display = triggerBots.length ? 'block' : 'none';
+    // Global pause button — show whenever there are trigger bots; reflect paused state
+    triggerBotsPaused = !!d.triggerBotsPaused;
+    const pauseBtn = document.getElementById('pauseTriggersBtn');
+    if(pauseBtn){
+      pauseBtn.style.display = triggerBots.length ? 'block' : 'none';
+      pauseBtn.textContent = triggerBotsPaused ? '▶️ RESUME NEW ENTRIES' : '⏸️ PAUSE NEW ENTRIES';
+      pauseBtn.style.borderColor = triggerBotsPaused ? 'var(--accent)' : 'var(--warn)';
+      pauseBtn.style.color = triggerBotsPaused ? 'var(--accent)' : 'var(--warn)';
+    }
     // Offer one-tap re-arm when the server has no bots but we remember some
     const rearmBtn = document.getElementById('rearmBtn');
     if(rearmBtn){
@@ -1474,7 +1484,7 @@ function renderArmedBots(){
                   : moved ? ' <span style="color:var(--warn)">(line moved — bot uses old level)</span>' : '');
     }
     src += phaseTag;
-    const tradeTag = b.activeTrade ? ` · <span style="color:var(--warn)">IN TRADE ${b.activeTrade.side}</span>` : '';
+    const tradeTag = b.activeTrade ? ` · <span style="color:var(--warn)">IN TRADE ${b.activeTrade.side}</span>${b.activeTrade.unmanaged?' <span style="color:var(--danger);font-weight:700;">⚠️ UNMANAGED</span>':''}` : '';
     const exits = (b.activeTrade && b.activeTrade.customExits) || [];
     const exitsLine = exits.length
       ? `<div style="margin-top:3px;padding-left:4px;border-left:2px solid var(--accent2);">${exits.map((r,i)=>`<div style="color:var(--accent2);font-size:9px;">📜 ${r.label||'exit rule'} <span onclick="removeLiveExit(${b.id},${i})" style="color:var(--danger);cursor:pointer;">✕</span></div>`).join('')}</div>`
@@ -1489,6 +1499,7 @@ function renderArmedBots(){
         <div style="display:flex;gap:8px;flex-shrink:0;">
           ${b.activeTrade ? `<button onclick="openLiveExitDialog(${b.id})" style="background:none;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;font-size:10px;padding:4px 8px;cursor:pointer;">+ Exit rule</button>` : ''}
           ${b.activeTrade ? `<button onclick="openModifyTrade(${b.id})" style="background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;font-size:10px;padding:4px 8px;cursor:pointer;">✏️ Modify</button>` : ''}
+          ${b.activeTrade ? `<button onclick="toggleTradeManaged(${b.id}, ${b.activeTrade.unmanaged?'true':'false'})" style="background:none;border:1px solid ${b.activeTrade.unmanaged?'var(--accent)':'var(--warn)'};color:${b.activeTrade.unmanaged?'var(--accent)':'var(--warn)'};border-radius:4px;font-size:10px;padding:4px 8px;cursor:pointer;">${b.activeTrade.unmanaged?'▶️ Resume mgmt':'✋ Manual'}</button>` : ''}
           ${!b.activeTrade ? `<button onclick="editBot(${b.id})" style="background:none;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;font-size:11px;padding:4px 9px;cursor:pointer;">✎</button>` : ''}
           <button onclick="disarmBot(${b.id})" style="background:none;border:1px solid var(--danger);color:var(--danger);border-radius:4px;font-size:11px;padding:4px 9px;cursor:pointer;">✕</button>
         </div>
@@ -3456,6 +3467,37 @@ ${editingBotId!=null ? 'This MODIFIES the existing bot — no new bot is added.'
   companionHistory = []; renderCompanionChat();
   lastLibraryEntryId = null;
 }
+let triggerBotsPaused = false; // mirrored from server status
+async function toggleTriggerPause(){
+  const newState = !triggerBotsPaused;
+  if(newState && !confirm('Pause new entries?\n\nTrigger bots will stop opening NEW trades. Any open trade keeps being managed (SL/TP enforced) unless you set it to Manual individually.')) return;
+  try{
+    const r = await fetch(PROXY+'/bot/pause-triggers',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({paused:newState})});
+    const d = await r.json();
+    if(d.ok){ triggerBotsPaused = d.paused; log(triggerBotsPaused?'⏸️ Trigger bots paused — no new entries':'▶️ Trigger bots resumed','ok'); pollBotStatus(); }
+  }catch(e){ log('Pause error: '+e.message,'err'); }
+}
+
+async function toggleTradeManaged(botId, currentlyUnmanaged){
+  const goManual = !currentlyUnmanaged; // if currently managed, we're switching to manual
+  if(goManual){
+    const ok = confirm('Take MANUAL control of this trade?\n\n⚠️ The bot will STOP enforcing this trade\'s stop loss and take profit. YOU are responsible for closing it.\n\nA real stop order on MEXC (if one exists) still applies, but server-managed stops, candle-close exits, and custom rules will NOT fire.\n\nContinue?');
+    if(!ok) return;
+  }
+  try{
+    const r = await fetch(PROXY+'/bot/set-managed',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({botId, managed: !goManual})});
+    const d = await r.json();
+    if(d.ok){
+      if(d.unmanaged){
+        log(`✋ Bot #${botId} trade is now MANUAL — bot will not manage exits.${d.hasExchangeStop?' (Exchange stop still active.)':' (No exchange stop — fully manual!)'}`, d.hasExchangeStop?'warn':'err');
+      } else {
+        log(`▶️ Bot #${botId} trade back under bot management.`,'ok');
+      }
+      pollBotStatus();
+    } else log('Failed: '+(d.error||'unknown'),'err');
+  }catch(e){ log('Error: '+e.message,'err'); }
+}
+
 async function disarmBot(id){
   let msg;
   if(id != null){
@@ -4037,7 +4079,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.63';
+const BUILD = '2026-06-14.64';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
