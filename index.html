@@ -270,6 +270,10 @@
     <input type="password" id="apiKey" placeholder="API Key" style="display:none"/>
     <input type="password" id="apiSecret" placeholder="API Secret" style="display:none"/>
     <span id="connPill" class="pill pill-grey">● NOT CONNECTED</span>
+    <div id="tradeModeToggle" style="display:flex;gap:0;border:1px solid var(--border);border-radius:4px;overflow:hidden;">
+      <button id="modeLiveBtn" onclick="setTradeMode('live')" style="padding:3px 8px;font-family:var(--font-mono);font-size:10px;font-weight:700;border:none;cursor:pointer;background:var(--danger);color:#fff;">💸 LIVE</button>
+      <button id="modePaperBtn" onclick="setTradeMode('paper')" style="padding:3px 8px;font-family:var(--font-mono);font-size:10px;font-weight:700;border:none;cursor:pointer;background:transparent;color:var(--muted);">📝 PAPER</button>
+    </div>
     <a href="./ai.html" title="AI Bots"
        style="font-family:var(--font-mono);font-size:10px;color:var(--accent2);text-decoration:none;border:1px solid var(--accent2);border-radius:4px;padding:3px 8px;white-space:nowrap;">🤖 AI</a>
     <!-- ACCOUNT % BADGE -->
@@ -427,11 +431,6 @@
     <!-- MANUAL TRADE -->
     <div class="panel-section">
       <div class="panel-title">Manual Trade</div>
-      <!-- LIVE / PAPER mode toggle -->
-      <div id="tradeModeToggle" style="display:flex;gap:0;margin-bottom:8px;border:1px solid var(--border);border-radius:6px;overflow:hidden;">
-        <button id="modeLiveBtn" onclick="setTradeMode('live')" style="flex:1;padding:7px;font-family:var(--font-mono);font-size:11px;font-weight:700;border:none;cursor:pointer;background:var(--danger);color:#fff;">💸 LIVE</button>
-        <button id="modePaperBtn" onclick="setTradeMode('paper')" style="flex:1;padding:7px;font-family:var(--font-mono);font-size:11px;font-weight:700;border:none;cursor:pointer;background:transparent;color:var(--muted);">📝 PAPER</button>
-      </div>
       <div id="paperModeBanner" style="display:none;font-family:var(--font-mono);font-size:10px;color:var(--accent2);background:rgba(61,127,255,.1);border:1px solid var(--accent2);border-radius:5px;padding:5px 8px;margin-bottom:8px;text-align:center;">📝 PAPER MODE — trades are simulated, no real orders</div>
       <!-- Quick buttons -->
       <div class="quick-btns">
@@ -1751,10 +1750,32 @@ function initChart(){
     const ty = touch0.clientY - rect0.top;
 
     if(!drawTool){
-      // No draw tool — check if finger landed on a line → start drag
-      if(e.touches.length===1 && lineDragStart(tx, ty)){
-        e.preventDefault();
-        setChartScroll(false);
+      // No draw tool. Two cases:
+      //  • finger on an ALREADY-SELECTED line → drag immediately
+      //  • finger on an UNSELECTED line → require a long-press (~400ms) to select,
+      //    so scrolling/tapping never accidentally grabs a line.
+      if(e.touches.length===1){
+        const hit = hitTestLines(tx, ty);
+        if(hit && selectedLine && hit.tl === selectedLine && !linesLocked){
+          // already selected AND unlocked → begin drag now
+          if(lineDragStart(tx, ty)){ e.preventDefault(); setChartScroll(false); }
+          return;
+        }
+        if(hit){
+          // unselected line (or locked) → long-press (~400ms) to select.
+          // When locked this still selects (to recolour/inspect) but never drags.
+          lineSelectPress = { x:tx, y:ty, tl:hit.tl, moved:false };
+          if(lineSelectTimer) clearTimeout(lineSelectTimer);
+          lineSelectTimer = setTimeout(()=>{
+            if(lineSelectPress && !lineSelectPress.moved){
+              selectLine(lineSelectPress.tl);
+              if(navigator.vibrate) try{ navigator.vibrate(15); }catch(e){}
+            }
+            lineSelectTimer = null;
+          }, 400);
+          // don't preventDefault — let the chart pan if it turns out to be a scroll
+          return;
+        }
       }
       return; // otherwise let the chart pan normally
     }
@@ -1765,6 +1786,14 @@ function initChart(){
   }, {passive:false});
 
   chartEl.addEventListener('touchmove', e=>{
+    // Cancel a pending long-press-to-select if the finger wanders (it's a scroll)
+    if(lineSelectPress){
+      const t = e.touches[0]; const r = chartEl.getBoundingClientRect();
+      if(Math.hypot((t.clientX-r.left)-lineSelectPress.x, (t.clientY-r.top)-lineSelectPress.y) > 10){
+        lineSelectPress.moved = true;
+        if(lineSelectTimer){ clearTimeout(lineSelectTimer); lineSelectTimer=null; }
+      }
+    }
     if(lineDrag){
       e.preventDefault();
       const touch = e.touches[0];
@@ -1823,6 +1852,9 @@ function initChart(){
 
   // Re-enable scroll when finger lifts
   chartEl.addEventListener('touchend', e=>{
+    // Clear any pending long-press-to-select (finger lifted before it fired)
+    if(lineSelectTimer){ clearTimeout(lineSelectTimer); lineSelectTimer=null; }
+    lineSelectPress = null;
     if(lineDrag){ lineDragEnd(); setChartScroll(true); return; }
     if(drawTool){
       e.preventDefault();
@@ -2413,6 +2445,8 @@ function addHorizLine(price){
 // that endpoint anywhere, including into the future. Tap empty space to deselect.
 let selectedLine = null;
 let lineDrag = null; // {mode:'body'|'p1'|'p2', lastPrice, lastTime}
+let lineSelectPress = null;  // long-press-to-select tracking
+let lineSelectTimer = null;
 let linesLocked = true; // locked by default — toggle 🔒 in toolbar to move lines
 
 function saveLines(){
@@ -2496,6 +2530,14 @@ function lineYAtX(tl, cx){
 }
 
 function hitTestLines(cx, cy){
+  // DEAD ZONE: the right-edge price axis is where you drag to scale the chart
+  // vertically. Ignore line hits there so scrolling/scaling never grabs a line.
+  try{
+    const chartEl = document.getElementById('chart');
+    const w = chartEl ? chartEl.clientWidth : 0;
+    const PRICE_AXIS_W = 64; // approx width of the right price scale
+    if(w && cx > (w - PRICE_AXIS_W)) return null;
+  }catch(e){}
   // endpoints first (bigger targets)
   if(selectedLine && !selectedLine.isHoriz){
     for(const end of ['p1','p2']){
@@ -3893,7 +3935,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.56';
+const BUILD = '2026-06-14.59';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
