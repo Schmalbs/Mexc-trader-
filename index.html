@@ -1467,6 +1467,7 @@ function renderArmedBots(){
         </div>
         <div style="display:flex;gap:8px;flex-shrink:0;">
           ${b.activeTrade ? `<button onclick="openLiveExitDialog(${b.id})" style="background:none;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;font-size:10px;padding:4px 8px;cursor:pointer;">+ Exit rule</button>` : ''}
+          ${b.activeTrade ? `<button onclick="openModifyTrade(${b.id})" style="background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;font-size:10px;padding:4px 8px;cursor:pointer;">✏️ Modify</button>` : ''}
           ${!b.activeTrade ? `<button onclick="editBot(${b.id})" style="background:none;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;font-size:11px;padding:4px 9px;cursor:pointer;">✎</button>` : ''}
           <button onclick="disarmBot(${b.id})" style="background:none;border:1px solid var(--danger);color:var(--danger);border-radius:4px;font-size:11px;padding:4px 9px;cursor:pointer;">✕</button>
         </div>
@@ -1477,6 +1478,45 @@ function renderArmedBots(){
 }
 
 // ── Attach an exit rule to an ALREADY-OPEN trade ──
+async function openModifyTrade(botId){
+  const bot = serverBots.find(b=>b.id===botId);
+  if(!bot || !bot.activeTrade){ log('No active trade.','err'); return; }
+  const at = bot.activeTrade;
+  const curSl = at.slPrice!=null ? (+at.slPrice).toFixed(2) : '';
+  const curTp = at.tpPrice!=null ? (+at.tpPrice).toFixed(2) : '';
+  const body = { botId };
+
+  const newSl = prompt(`Move STOP LOSS\nEntry: $${(+at.entryPrice).toFixed(2)} (${at.side})\nCurrent SL: $${curSl}\n\nEnter new SL price (or leave blank to keep):`, curSl);
+  if(newSl===null) return; // cancelled
+  if(newSl.trim() && parseFloat(newSl)!==parseFloat(curSl)) body.slPrice = parseFloat(newSl);
+
+  const newTp = prompt(`Move TAKE PROFIT\nCurrent TP: $${curTp}\n\nEnter new TP price (or leave blank to keep):`, curTp);
+  if(newTp===null) return;
+  if(newTp.trim() && parseFloat(newTp)!==parseFloat(curTp)) body.tpPrice = parseFloat(newTp);
+
+  // TP level sizes (only if multi-level)
+  if(at.tpLevels && at.tpLevels.length){
+    const curSizes = at.tpLevels.map(l=>l.size).join(',');
+    const newSizes = prompt(`Close % at each TP level (comma-separated)\nCurrent: ${curSizes}\ne.g. "50,100" = sell 50% at TP1, rest at TP2\n\nEnter new sizes (or leave blank to keep):`, curSizes);
+    if(newSizes===null) return;
+    if(newSizes.trim() && newSizes!==curSizes){
+      body.levelSizes = newSizes.split(',').map(s=>parseFloat(s.trim())).filter(n=>!isNaN(n));
+    }
+  }
+
+  if(!body.slPrice && !body.tpPrice && !body.levelSizes){ log('No changes made.','info'); return; }
+  try{
+    const r = await fetch(PROXY+'/bot/modify-trade',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
+    const d = await r.json();
+    if(d.ok){
+      log(`✏️ Trade modified — SL $${(+d.slPrice).toFixed(2)} TP $${(+d.tpPrice).toFixed(2)}`,'ok');
+      pollBotStatus();
+    } else {
+      log('Modify failed: '+(d.error||'unknown'),'err');
+    }
+  }catch(e){ log('Modify error: '+e.message,'err'); }
+}
+
 async function openLiveExitDialog(botId){
   const text = prompt('Exit rule for this open trade (plain English):\\n\\ne.g. "if a 4h candle closes below line 3 then retests and closes below, close the trade"');
   if(text===null || !text.trim()) return;
@@ -1780,6 +1820,11 @@ function initChart(){
           return;
         }
       }
+      // Tap on empty chart space (no line hit). Record it so a STILL tap (not a
+      // scroll) deselects the current line on touchend.
+      if(selectedLine){
+        emptyTapStart = { x:tx, y:ty, moved:false };
+      }
       return; // otherwise let the chart pan normally
     }
     // Draw tool active — block chart scroll, record tap start for tap-to-place
@@ -1796,6 +1841,11 @@ function initChart(){
         lineSelectPress.moved = true;
         if(lineSelectTimer){ clearTimeout(lineSelectTimer); lineSelectTimer=null; }
       }
+    }
+    // A moving finger on empty space is a scroll, not a deselect-tap
+    if(emptyTapStart){
+      const t = e.touches[0]; const r = chartEl.getBoundingClientRect();
+      if(Math.hypot((t.clientX-r.left)-emptyTapStart.x, (t.clientY-r.top)-emptyTapStart.y) > 6) emptyTapStart.moved = true;
     }
     // Multi-touch (pinch-to-scale) → cancel any pending select immediately
     if(e.touches.length > 1 && lineSelectTimer){
@@ -1862,6 +1912,11 @@ function initChart(){
     // Clear any pending long-press-to-select (finger lifted before it fired)
     if(lineSelectTimer){ clearTimeout(lineSelectTimer); lineSelectTimer=null; }
     lineSelectPress = null;
+    // Still tap on empty space → deselect the current line
+    if(emptyTapStart && !emptyTapStart.moved && selectedLine){
+      selectLine(null);
+    }
+    emptyTapStart = null;
     if(lineDrag){ lineDragEnd(); setChartScroll(true); return; }
     if(drawTool){
       e.preventDefault();
@@ -2454,6 +2509,7 @@ let selectedLine = null;
 let lineDrag = null; // {mode:'body'|'p1'|'p2', lastPrice, lastTime}
 let lineSelectPress = null;  // long-press-to-select tracking
 let lineSelectTimer = null;
+let emptyTapStart = null;    // empty-space tap → deselect on still tap
 let linesLocked = true; // locked by default — toggle 🔒 in toolbar to move lines
 
 function saveLines(){
@@ -3934,7 +3990,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.60';
+const BUILD = '2026-06-14.62';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
