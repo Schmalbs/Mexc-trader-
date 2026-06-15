@@ -2371,7 +2371,7 @@ function addTrendLine(p1,p2){
   // Ensure p1 is the earlier point so slope math stays sane
   if(p2.time < p1.time){ const tmp=p1; p1=p2; p2=tmp; }
   const id=nextLineId();
-  const color = selectedLineColor || '#ffffff';
+  const color = colorForTf(currentTf); // colour always matches the drawn timeframe
   const s=chart.addLineSeries({color,lineWidth:2,lastValueVisible:false,priceLineVisible:false});
   s.setData(buildLinePoints(p1,p2));
   trendLines.push({id,p1,p2,series:s,armed:false,color,tf:currentTf});
@@ -2385,7 +2385,7 @@ function addTrendLine(p1,p2){
 }
 function addHorizLine(price){
   const id = nextLineId();
-  const color = selectedLineColor || '#ffffff';
+  const color = colorForTf(currentTf); // colour always matches the drawn timeframe
   const s = chart.addLineSeries({color, lineWidth:2, lineStyle:0, lastValueVisible:true, priceLineVisible:false});
   // Horizontal: same price across all candle times + 150 future bars
   if(candles.length){
@@ -3893,7 +3893,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.55';
+const BUILD = '2026-06-14.56';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
