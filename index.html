@@ -1764,6 +1764,9 @@ function initChart(){
         if(hit){
           // unselected line (or locked) → long-press (~400ms) to select.
           // When locked this still selects (to recolour/inspect) but never drags.
+          // Crucially: do NOT block the chart — native pan/scale must keep working
+          // so you can scroll or scale even with a finger on a full-width line.
+          setChartScroll(true);
           lineSelectPress = { x:tx, y:ty, tl:hit.tl, moved:false };
           if(lineSelectTimer) clearTimeout(lineSelectTimer);
           lineSelectTimer = setTimeout(()=>{
@@ -1773,7 +1776,7 @@ function initChart(){
             }
             lineSelectTimer = null;
           }, 400);
-          // don't preventDefault — let the chart pan if it turns out to be a scroll
+          // no preventDefault → the chart pans/scales normally if the finger moves
           return;
         }
       }
@@ -1786,13 +1789,17 @@ function initChart(){
   }, {passive:false});
 
   chartEl.addEventListener('touchmove', e=>{
-    // Cancel a pending long-press-to-select if the finger wanders (it's a scroll)
+    // Cancel a pending long-press-to-select if the finger wanders (it's a scroll/scale)
     if(lineSelectPress){
       const t = e.touches[0]; const r = chartEl.getBoundingClientRect();
-      if(Math.hypot((t.clientX-r.left)-lineSelectPress.x, (t.clientY-r.top)-lineSelectPress.y) > 10){
+      if(Math.hypot((t.clientX-r.left)-lineSelectPress.x, (t.clientY-r.top)-lineSelectPress.y) > 6){
         lineSelectPress.moved = true;
         if(lineSelectTimer){ clearTimeout(lineSelectTimer); lineSelectTimer=null; }
       }
+    }
+    // Multi-touch (pinch-to-scale) → cancel any pending select immediately
+    if(e.touches.length > 1 && lineSelectTimer){
+      clearTimeout(lineSelectTimer); lineSelectTimer=null; lineSelectPress=null;
     }
     if(lineDrag){
       e.preventDefault();
@@ -2530,14 +2537,6 @@ function lineYAtX(tl, cx){
 }
 
 function hitTestLines(cx, cy){
-  // DEAD ZONE: the right-edge price axis is where you drag to scale the chart
-  // vertically. Ignore line hits there so scrolling/scaling never grabs a line.
-  try{
-    const chartEl = document.getElementById('chart');
-    const w = chartEl ? chartEl.clientWidth : 0;
-    const PRICE_AXIS_W = 64; // approx width of the right price scale
-    if(w && cx > (w - PRICE_AXIS_W)) return null;
-  }catch(e){}
   // endpoints first (bigger targets)
   if(selectedLine && !selectedLine.isHoriz){
     for(const end of ['p1','p2']){
@@ -3935,7 +3934,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.59';
+const BUILD = '2026-06-14.60';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
