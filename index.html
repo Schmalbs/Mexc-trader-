@@ -322,22 +322,8 @@
         <button class="btn btn-ghost" id="fullscreenBtn" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
         <button class="btn btn-ghost" onclick="location.reload()" title="Refresh app">↻</button>
       </div>
-      <!-- LINE COLOUR PICKER -->
-      <div class="line-colors">
-        <span class="lc-label">LINE:</span>
-        <div class="lc-swatch"          data-color="#3d7fff" title="Blue (4H)"         style="background:#3d7fff" onclick="selectLineColor(this)"></div>
-        <div class="lc-swatch"          data-color="#f5c842" title="Yellow (4H)"      style="background:#f5c842" onclick="selectLineColor(this)"></div>
-        <div class="lc-swatch"          data-color="#00c896" title="Green"            style="background:#00c896" onclick="selectLineColor(this)"></div>
-        <div class="lc-swatch"          data-color="#b06aff" title="Purple (Weekly)"  style="background:#b06aff" onclick="selectLineColor(this)"></div>
-        <div class="lc-swatch"          data-color="#ff4d6a" title="Red (Monthly)"    style="background:#ff4d6a" onclick="selectLineColor(this)"></div>
-        <div class="lc-swatch"          data-color="#ff8c00" title="Orange"           style="background:#ff8c00" onclick="selectLineColor(this)"></div>
-        <div class="lc-swatch selected" data-color="#ffffff" title="White (default)"  style="background:#fff"    onclick="selectLineColor(this)"></div>
-        <!-- Custom colour -->
-        <input type="color" id="customColorPicker" value="#ffffff"
-          title="Custom colour"
-          style="width:22px;height:22px;border-radius:50%;border:2px solid var(--border);background:transparent;cursor:pointer;padding:0;overflow:hidden;"
-          onchange="selectCustomColor(this)"/>
-      </div>
+      <!-- Line colour is now set automatically by the chart timeframe you draw on
+           (see the on-chart timeframe key). Manual palette removed. -->
 
     </div>
     <div id="chart"></div>
@@ -1004,7 +990,7 @@ function selectLineColor(el){
   document.querySelectorAll('.lc-swatch').forEach(s=>s.classList.remove('selected'));
   el.classList.add('selected');
   selectedLineColor = el.dataset.color;
-  document.getElementById('customColorPicker').value = selectedLineColor;
+  const cp=document.getElementById('customColorPicker'); if(cp) cp.value = selectedLineColor;
   applyColorToSelectedLine(selectedLineColor);
 }
 
@@ -3681,7 +3667,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.49';
+const BUILD = '2026-06-14.50';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
