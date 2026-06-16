@@ -660,11 +660,11 @@
             Confirm break + retest before entry
           </label>
           <div style="font-size:10px;color:var(--muted);margin:-4px 0 8px;line-height:1.4;">Off = enter the moment a candle closes through the line. On = wait for the break, then a retest that holds (old level flips) before entering — filters fake-outs.</div>
-          <div class="form-row">
-            <div class="form-label">Break buffer (%)</div>
+          <div class="form-row" id="breakBufferRow">
+            <div class="form-label">Break buffer (%) <span style="color:var(--muted);font-weight:400;">— lines only</span></div>
             <input type="number" id="breakBufferPct" value="0.1" step="0.05" min="0" style="width:100%;"/>
           </div>
-          <div style="font-size:9px;color:var(--muted);margin-top:4px;">How far beyond the line a close must be to count as a real break.</div>
+          <div style="font-size:9px;color:var(--muted);margin-top:4px;" id="breakBufferHint">How far beyond the line a close must be to count as a real break. Ignored for manual-price triggers (those use the exact price).</div>
         </div>
         <div class="inline-row">
           <div class="form-row">
@@ -1659,10 +1659,14 @@ function updateAccountBadge(currentPrice){
   if(activeTrade && currentPrice){
     const {side, entryPrice, qty, leverage=1} = activeTrade;
     const dir = side==='BUY'?1:-1;
-    unrealizedDollars = (currentPrice - entryPrice) * qty * dir * leverage;
+    // qty is in CONTRACTS (1 contract = CONTRACT_SIZE BTC). Dollar P&L is the
+    // price move × contracts × contract size. Leverage does NOT multiply P&L —
+    // it only affects margin used. (Previous bug double-counted leverage and
+    // omitted CONTRACT_SIZE, producing absurd percentages like -333,000%.)
+    unrealizedDollars = (currentPrice - entryPrice) * qty * CONTRACT_SIZE * dir;
   }
   const totalPnl = realizedPnlDollars + unrealizedDollars;
-  const pct      = (totalPnl / bal * 100);
+  const pct      = bal>0 ? (totalPnl / bal * 100) : 0;
   const sign     = totalPnl>=0?'+':'';
   const el       = document.getElementById('acctPct');
 
@@ -1810,8 +1814,17 @@ function initChart(){
     if(isTouchDevice || drawTool) return;
     const rect = chartElMouse.getBoundingClientRect();
     if(lineDragStart(e.clientX-rect.left, e.clientY-rect.top)){
-      e.preventDefault();
-      setChartScroll(false);
+      // Only freeze the chart if an actual drag began. A locked line selects but
+      // does NOT drag (lineDrag stays null) — in that case leave scroll/scale ON
+      // so price-axis scaling keeps working.
+      if(lineDrag){
+        e.preventDefault();
+        setChartScroll(false);
+      } else {
+        setChartScroll(true); // locked-line select — make sure scaling stays on
+      }
+    } else {
+      setChartScroll(true); // clicked empty space / axis — ensure scaling is enabled
     }
   });
   chartElMouse.addEventListener('mousemove', e=>{
@@ -2913,6 +2926,11 @@ function setTriggerSource(src){
   document.getElementById('tsBtnPrice').className = 'ts-btn'+(src==='price'?' active':'');
   document.getElementById('triggerLineSection').style.display  = src==='line' ?'block':'none';
   document.getElementById('triggerPriceSection').style.display = src==='price'?'block':'none';
+  // Break buffer only applies to line triggers — hide it for manual price
+  const bufRow = document.getElementById('breakBufferRow');
+  const bufHint = document.getElementById('breakBufferHint');
+  if(bufRow) bufRow.style.display = src==='price' ? 'none' : 'flex';
+  if(bufHint) bufHint.style.display = src==='price' ? 'none' : 'block';
 }
 
 function updateLineTriggerSelect(){
@@ -3421,7 +3439,7 @@ async function armBot(){
   const summary =
 `${editingBotId!=null ? `UPDATE BOT #${editingBotId} WITH THESE SETTINGS?` : 'ARM THIS BOT?'}
 
-${cfg.retestConfirm ? 'Entry mode: BREAK + RETEST — break detected, then wait for a retest that holds, then enter\n' : ''}${cfg.breakBufferPct ? 'Break buffer: close must clear the line by '+cfg.breakBufferPct+'%\n' : ''}Trigger: ${sideLabel}
+${cfg.retestConfirm ? 'Entry mode: BREAK + RETEST — break detected, then wait for a retest that holds, then enter\n' : ''}${(cfg.breakBufferPct && cfg.triggerSource!=='price') ? 'Break buffer: close must clear the line by '+cfg.breakBufferPct+'%\n' : ''}Trigger: ${sideLabel}
 Source: ${srcLabel}
 Candle TF: ${tfLabel}
 Size: ${cfg.qtyUsdt ? '$'+cfg.qtyUsdt+' margin × '+cfg.leverage+'× = $'+notional+' position (converted at entry)' : cfg.qty+' contracts (≈$'+notional+' notional)'} at ${cfg.leverage}× ${cfg.marginType}
@@ -3866,7 +3884,7 @@ function renderTradesPanel(){
   const rawPct = (p - t.entryPrice)/t.entryPrice*100*dir*lev;
   const dollarPnl = (p - t.entryPrice)*t.qty*CONTRACT_SIZE*dir;
   const bal = getStartBalance();
-  const acctPct = (realizedPnlDollars+dollarPnl)/bal*100;
+  const acctPct = bal>0 ? (realizedPnlDollars+dollarPnl)/bal*100 : 0;
   const sign = rawPct>=0?'+':'';
   const acctSign = acctPct>=0?'+':'';
   const pnlClass = rawPct>0?'pos':rawPct<0?'neg':'zero';
@@ -3994,10 +4012,10 @@ function exitTrade(reason, price, method){
   if(!activeTrade) return;
   const{entryPrice,side,qty,leverage=1}=activeTrade;
   const dir=side==='BUY'?1:-1;
-  const dollarPnl=(price-entryPrice)*qty*dir*leverage;
+  const dollarPnl=(price-entryPrice)*qty*CONTRACT_SIZE*dir;
   const tradePct=(price-entryPrice)/entryPrice*100*dir*leverage;
   const bal=getStartBalance();
-  const acctPct=dollarPnl/bal*100;
+  const acctPct=bal>0?dollarPnl/bal*100:0;
   const sign=dollarPnl>=0?'+':'';
   const leverageLabel=leverage>1?` (${leverage}×)`:'';
   realizedPnlDollars+=dollarPnl;
@@ -4052,9 +4070,9 @@ function updatePnlOverlay(p){
   const{entryPrice,tpPrice,slPrice,side,qty,leverage=1}=activeTrade;
   const dir=side==='BUY'?1:-1;
   const rawPct=(p-entryPrice)/entryPrice*100*dir*leverage;
-  const dollarPnl=(p-entryPrice)*qty*dir*leverage;
+  const dollarPnl=(p-entryPrice)*qty*CONTRACT_SIZE*dir;
   const bal=getStartBalance();
-  const acctPct=(realizedPnlDollars+dollarPnl)/bal*100;
+  const acctPct=bal>0?(realizedPnlDollars+dollarPnl)/bal*100:0;
   const sign=rawPct>=0?'+':'';
   const acctSign=acctPct>=0?'+':'';
   const el=document.getElementById('tmPct');
@@ -4079,7 +4097,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.64';
+const BUILD = '2026-06-14.67';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
