@@ -340,6 +340,8 @@
       <button id="modeLiveBtn" onclick="setTradeMode('live')" style="padding:3px 8px;font-family:var(--font-mono);font-size:10px;font-weight:700;border:none;cursor:pointer;background:var(--danger);color:#fff;">💸 LIVE</button>
       <button id="modePaperBtn" onclick="setTradeMode('paper')" style="padding:3px 8px;font-family:var(--font-mono);font-size:10px;font-weight:700;border:none;cursor:pointer;background:transparent;color:var(--muted);">📝 PAPER</button>
     </div>
+    <button id="disciplineToggle" onclick="toggleDiscipline()" title="Discipline Mode — size as a fixed % of account"
+      style="padding:3px 9px;font-family:var(--font-mono);font-size:10px;font-weight:700;border:1px solid var(--border);border-radius:4px;cursor:pointer;background:transparent;color:var(--muted);white-space:nowrap;">🧘 Discipline: OFF</button>
     <a href="./ai.html" title="AI Bots"
        style="font-family:var(--font-mono);font-size:10px;color:var(--accent2);text-decoration:none;border:1px solid var(--accent2);border-radius:4px;padding:3px 8px;white-space:nowrap;">🤖 AI</a>
     <!-- ACCOUNT % BADGE -->
@@ -536,11 +538,7 @@
             </select>
           </div>
         </div>
-        <div class="qty-mode-toggle">
-          <button class="qmt-btn active" id="manualQtyModeUsdt"  onclick="setQtyMode('manual','usdt')">💵 Amount</button>
-          <button class="qmt-btn"        id="manualQtyModePct"   onclick="setQtyMode('manual','pct')">🧘 Discipline</button>
-        </div>
-        <div id="manualDisciplineNote" style="display:none;font-size:9px;color:var(--accent);background:rgba(0,200,150,.08);border-radius:4px;padding:4px 7px;margin:4px 0;line-height:1.4;">🧘 Discipline Mode: sizes as a fixed % of your account, so positions scale with your balance — no emotional dollar amounts.</div>
+        <div id="manualDisciplineNote" style="display:none;font-size:9px;color:var(--accent);background:rgba(0,200,150,.08);border-radius:4px;padding:4px 7px;margin:4px 0;line-height:1.4;">🧘 Discipline Mode is ON (toggle at top) — sizing as a fixed % of your account.</div>
         <div class="inline-row">
           <div class="form-row">
             <div class="form-label" id="manualQtyLabel">Qty (base)</div>
@@ -735,11 +733,7 @@
           </div>
           <div class="form-row">
             <div class="form-label" id="botQtyLabel">Qty (base)</div>
-            <div class="qty-mode-toggle" style="margin-bottom:3px;">
-              <button class="qmt-btn active" id="botQtyModeUsdt" onclick="setQtyMode('bot','usdt')">💵 Amount</button>
-              <button class="qmt-btn"        id="botQtyModePct"  onclick="setQtyMode('bot','pct')">🧘 Discipline</button>
-            </div>
-            <div id="botDisciplineNote" style="display:none;font-size:9px;color:var(--accent);background:rgba(0,200,150,.08);border-radius:4px;padding:4px 7px;margin-bottom:4px;line-height:1.4;">🧘 Discipline Mode: fixed % of account — positions scale with your balance.</div>
+            <div id="botDisciplineNote" style="display:none;font-size:9px;color:var(--accent);background:rgba(0,200,150,.08);border-radius:4px;padding:4px 7px;margin-bottom:4px;line-height:1.4;">🧘 Discipline Mode is ON (toggle at top) — fixed % of account.</div>
             <input type="number" id="qty"     value="0.001" step="0.0001" min="0" style="display:none"/>
             <input type="number" id="botQtyUsdt" value="100"  step="1"    min="0" placeholder="USDT"/>
             <input type="number" id="botQtyPct"  value="10"   step="1"    min="1" max="100" placeholder="% acct" style="display:none"/>
@@ -946,6 +940,27 @@ const qtyModeState = { manual:'usdt', bot:'usdt' };
 let pnlDisplayMode  = '$';   // '$' or '%'
 let tradePanelMode  = '%';   // '%' or '$' — trades panel P&L display
 let headerPnlMode  = '%';   // header badge toggles between '%' and '$'
+
+// ── GLOBAL DISCIPLINE MODE ── single header toggle; ON = size as % of account
+// (Discipline), OFF = USDT Amount. Applies to BOTH manual trades and bots.
+let disciplineOn = localStorage.getItem('disciplineOn')==='1';
+function applyDiscipline(){
+  const mode = disciplineOn ? 'pct' : 'usdt';
+  try{ setQtyMode('manual', mode); }catch(e){}
+  try{ setQtyMode('bot', mode); }catch(e){}
+  const btn = document.getElementById('disciplineToggle');
+  if(btn){
+    btn.textContent = disciplineOn ? '🧘 Discipline: ON' : '🧘 Discipline: OFF';
+    btn.style.background = disciplineOn ? 'var(--accent)' : 'transparent';
+    btn.style.color = disciplineOn ? '#06281f' : 'var(--muted)';
+    btn.style.borderColor = disciplineOn ? 'var(--accent)' : 'var(--border)';
+  }
+}
+function toggleDiscipline(){
+  disciplineOn = !disciplineOn;
+  try{ localStorage.setItem('disciplineOn', disciplineOn?'1':'0'); }catch(e){}
+  applyDiscipline();
+}
 
 function setQtyMode(section, mode){
   qtyModeState[section] = mode;
@@ -1428,7 +1443,7 @@ function removeTpLevel(i){
 }
 
 // init
-document.addEventListener('DOMContentLoaded', ()=>{ renderTpLevels(); updateSlHint(); onDirChange(); setLineColorForTf(); initTfKeyDrag(); setTradeMode(tradeMode); initSections(); });
+document.addEventListener('DOMContentLoaded', ()=>{ renderTpLevels(); updateSlHint(); onDirChange(); setLineColorForTf(); initTfKeyDrag(); setTradeMode(tradeMode); initSections(); applyDiscipline(); });
 setInterval(updateSlHint, 3000); // stays accurate as trigger line/selection changes
 
 // ── SERVER BOT STATUS POLLING ──
@@ -4218,7 +4233,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.72';
+const BUILD = '2026-06-14.73';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
