@@ -943,7 +943,7 @@ let headerPnlMode  = '%';   // header badge toggles between '%' and '$'
 
 // ── GLOBAL DISCIPLINE MODE ── single header toggle; ON = size as % of account
 // (Discipline), OFF = USDT Amount. Applies to BOTH manual trades and bots.
-let disciplineOn = localStorage.getItem('disciplineOn')==='1';
+let disciplineOn = localStorage.getItem('disciplineOn') !== '0'; // default ON; only off if explicitly turned off
 function applyDiscipline(){
   const mode = disciplineOn ? 'pct' : 'usdt';
   try{ setQtyMode('manual', mode); }catch(e){}
@@ -4233,7 +4233,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.73';
+const BUILD = '2026-06-14.74';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
