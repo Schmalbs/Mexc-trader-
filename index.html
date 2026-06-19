@@ -493,7 +493,7 @@
     </div>
 
     <!-- MANUAL TRADE -->
-    <div class="panel-section" id="sec-manual" data-default="open">
+    <div class="panel-section" id="sec-manual" data-default="closed">
       <div class="sec-head" onclick="toggleSection('sec-manual')">
         <div class="panel-title">Manual Trade</div>
         <span class="sec-caret">▼</span>
@@ -537,10 +537,10 @@
           </div>
         </div>
         <div class="qty-mode-toggle">
-          <button class="qmt-btn"        id="manualQtyModeBase"  onclick="setQtyMode('manual','base')">Base qty</button>
-          <button class="qmt-btn active" id="manualQtyModeUsdt"  onclick="setQtyMode('manual','usdt')">USDT amount</button>
-          <button class="qmt-btn"        id="manualQtyModePct"   onclick="setQtyMode('manual','pct')">% of account</button>
+          <button class="qmt-btn active" id="manualQtyModeUsdt"  onclick="setQtyMode('manual','usdt')">💵 Amount</button>
+          <button class="qmt-btn"        id="manualQtyModePct"   onclick="setQtyMode('manual','pct')">🧘 Discipline</button>
         </div>
+        <div id="manualDisciplineNote" style="display:none;font-size:9px;color:var(--accent);background:rgba(0,200,150,.08);border-radius:4px;padding:4px 7px;margin:4px 0;line-height:1.4;">🧘 Discipline Mode: sizes as a fixed % of your account, so positions scale with your balance — no emotional dollar amounts.</div>
         <div class="inline-row">
           <div class="form-row">
             <div class="form-label" id="manualQtyLabel">Qty (base)</div>
@@ -736,10 +736,10 @@
           <div class="form-row">
             <div class="form-label" id="botQtyLabel">Qty (base)</div>
             <div class="qty-mode-toggle" style="margin-bottom:3px;">
-              <button class="qmt-btn"        id="botQtyModeBase" onclick="setQtyMode('bot','base')">Base</button>
-              <button class="qmt-btn active" id="botQtyModeUsdt" onclick="setQtyMode('bot','usdt')">USDT</button>
-              <button class="qmt-btn"        id="botQtyModePct"  onclick="setQtyMode('bot','pct')">% acct</button>
+              <button class="qmt-btn active" id="botQtyModeUsdt" onclick="setQtyMode('bot','usdt')">💵 Amount</button>
+              <button class="qmt-btn"        id="botQtyModePct"  onclick="setQtyMode('bot','pct')">🧘 Discipline</button>
             </div>
+            <div id="botDisciplineNote" style="display:none;font-size:9px;color:var(--accent);background:rgba(0,200,150,.08);border-radius:4px;padding:4px 7px;margin-bottom:4px;line-height:1.4;">🧘 Discipline Mode: fixed % of account — positions scale with your balance.</div>
             <input type="number" id="qty"     value="0.001" step="0.0001" min="0" style="display:none"/>
             <input type="number" id="botQtyUsdt" value="100"  step="1"    min="0" placeholder="USDT"/>
             <input type="number" id="botQtyPct"  value="10"   step="1"    min="1" max="100" placeholder="% acct" style="display:none"/>
@@ -874,12 +874,17 @@
     </div>
 
     <!-- AI BOTS MONITOR (full controls on ai.html) -->
-    <div class="panel-section">
-      <div class="panel-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>🤖 AI Bots</span>
-        <a href="./ai.html" style="color:var(--accent2);font-family:var(--font-mono);font-size:9px;text-decoration:none;border:1px solid var(--accent2);border-radius:3px;padding:2px 8px;">Open AI page →</a>
+    <div class="panel-section" id="sec-aibots" data-default="closed">
+      <div class="sec-head" onclick="toggleSection('sec-aibots')">
+        <div class="panel-title" style="display:flex;justify-content:space-between;align-items:center;flex:1;">
+          <span>🤖 AI Bots</span>
+          <a href="./ai.html" onclick="event.stopPropagation()" style="color:var(--accent2);font-family:var(--font-mono);font-size:9px;text-decoration:none;border:1px solid var(--accent2);border-radius:3px;padding:2px 8px;">Open AI page →</a>
+        </div>
+        <span class="sec-caret">▼</span>
       </div>
-      <div id="aiMonitorStrip" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);line-height:1.7;">Loading…</div>
+      <div class="sec-body">
+        <div id="aiMonitorStrip" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);line-height:1.7;">Loading…</div>
+      </div>
     </div>
 
     <!-- OPEN TRADES -->
@@ -899,12 +904,17 @@
     </div>
 
     <!-- LOG -->
-    <div class="panel-section" style="flex:1">
-      <div class="panel-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>Activity Log</span>
-        <button onclick="copyFullLog()" style="background:none;border:1px solid var(--border);color:var(--muted);font-family:var(--font-mono);font-size:9px;padding:2px 8px;border-radius:3px;cursor:pointer;">📋 Copy log</button>
+    <div class="panel-section" id="sec-log" data-default="closed" style="flex:1">
+      <div class="sec-head" onclick="toggleSection('sec-log')">
+        <div class="panel-title" style="display:flex;justify-content:space-between;align-items:center;flex:1;">
+          <span>Activity Log</span>
+          <button onclick="event.stopPropagation();copyFullLog()" style="background:none;border:1px solid var(--border);color:var(--muted);font-family:var(--font-mono);font-size:9px;padding:2px 8px;border-radius:3px;cursor:pointer;">📋 Copy log</button>
+        </div>
+        <span class="sec-caret">▼</span>
       </div>
-      <div class="log-box" id="logBox"></div>
+      <div class="sec-body">
+        <div class="log-box" id="logBox"></div>
+      </div>
     </div>
   </div>
 
@@ -950,13 +960,17 @@ function setQtyMode(section, mode){
     document.getElementById('manualQtyUsdt').style.display = mode==='usdt'?'block':'none';
     document.getElementById('manualQtyPct').style.display  = mode==='pct' ?'block':'none';
     document.getElementById('manualQtyLabel').textContent  =
-      mode==='base'?'Qty (base)': mode==='usdt'?'Amount (USDT)':'% of Account';
+      mode==='base'?'Qty (base)': mode==='usdt'?'Amount (USDT)':'% of Account (Discipline)';
+    const note = document.getElementById('manualDisciplineNote');
+    if(note) note.style.display = mode==='pct' ? 'block' : 'none';
   } else {
     document.getElementById('qty').style.display        = mode==='base'?'block':'none';
     document.getElementById('botQtyUsdt').style.display = mode==='usdt'?'block':'none';
     document.getElementById('botQtyPct').style.display  = mode==='pct' ?'block':'none';
     document.getElementById('botQtyLabel').textContent  =
-      mode==='base'?'Qty (base)': mode==='usdt'?'Amount (USDT)':'% of Account';
+      mode==='base'?'Qty (base)': mode==='usdt'?'Amount (USDT)':'% of Account (Discipline)';
+    const note = document.getElementById('botDisciplineNote');
+    if(note) note.style.display = mode==='pct' ? 'block' : 'none';
   }
 }
 
@@ -4204,7 +4218,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.71';
+const BUILD = '2026-06-14.72';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
