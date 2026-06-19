@@ -481,12 +481,6 @@
         <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px;flex-shrink:0" onclick="resetAccountPnl()">Reset</button>
       </div>
       <div id="balanceStatus" style="font-size:10px;font-family:var(--font-mono);color:var(--muted);margin-bottom:6px;display:none"></div>
-      <div style="margin-bottom:6px;">
-        <div class="pnl-mode-switch">
-          <button class="pms-btn active" id="pnlModeBtn$"  onclick="setPnlMode('$')">$ Amount</button>
-          <button class="pms-btn"        id="pnlModeBtn%"  onclick="setPnlMode('%')">% of Account</button>
-        </div>
-      </div>
       <div style="font-size:10px;font-family:var(--font-mono);color:var(--muted)">
         Realized P&amp;L: <span id="realizedPnl" style="color:var(--text)">$0.00</span>
         &nbsp;|&nbsp; Trades: <span id="tradeCount" style="color:var(--text)">0</span>
@@ -1036,8 +1030,8 @@ function resolveQty(section, entryPrice){
 
 function setPnlMode(mode){
   pnlDisplayMode = mode;
-  document.getElementById('pnlModeBtn$').className = 'pms-btn'+(mode==='$'?' active':'');
-  document.getElementById('pnlModeBtn%').className = 'pms-btn'+(mode==='%'?' active':'');
+  const b$ = document.getElementById('pnlModeBtn$'); if(b$) b$.className = 'pms-btn'+(mode==='$'?' active':'');
+  const bp = document.getElementById('pnlModeBtn%'); if(bp) bp.className = 'pms-btn'+(mode==='%'?' active':'');
   updateAccountBadge(lastPrice); // re-render with new mode
 }
 
@@ -4236,7 +4230,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.75';
+const BUILD = '2026-06-14.76';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
