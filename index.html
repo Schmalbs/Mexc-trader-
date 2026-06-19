@@ -475,7 +475,6 @@
           <div class="form-label">USDT Balance <span style="color:var(--accent);font-size:8px;">● auto-sync</span></div>
           <div style="display:flex;align-items:center;gap:6px;">
             <span id="balanceDisplay" style="font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--text);letter-spacing:2px;">••••••</span>
-            <button onclick="toggleBalanceVisible()" id="balanceEye" style="background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;padding:2px;">👁</button>
           </div>
           <input type="hidden" id="startBalance" value="1000"/>
         </div>
@@ -948,6 +947,12 @@ function applyDiscipline(){
   const mode = disciplineOn ? 'pct' : 'usdt';
   try{ setQtyMode('manual', mode); }catch(e){}
   try{ setQtyMode('bot', mode); }catch(e){}
+  // Discipline drives the whole money-visibility mindset:
+  //   ON  → balance hidden, everything shown as % (heads-down, trade the process)
+  //   OFF → balance shown, dollar amounts (eyes-open on the money)
+  pnlDisplayMode = disciplineOn ? '%' : '$';
+  headerPnlMode  = disciplineOn ? '%' : '$';
+  tradePanelMode = disciplineOn ? '%' : '$';
   const btn = document.getElementById('disciplineToggle');
   if(btn){
     btn.textContent = disciplineOn ? '🧘 Discipline: ON' : '🧘 Discipline: OFF';
@@ -955,6 +960,9 @@ function applyDiscipline(){
     btn.style.color = disciplineOn ? '#06281f' : 'var(--muted)';
     btn.style.borderColor = disciplineOn ? 'var(--accent)' : 'var(--border)';
   }
+  try{ updateBalanceDisplay(); }catch(e){}
+  try{ updateAccountBadge(lastPrice); }catch(e){}
+  try{ renderTradesPanel(); }catch(e){}
 }
 function toggleDiscipline(){
   disciplineOn = !disciplineOn;
@@ -1771,19 +1779,14 @@ function getStartBalance(){ return parseFloat(document.getElementById('startBala
 
 // ── BALANCE VISIBILITY ──
 let balanceVisible = false;
-function toggleBalanceVisible(){
-  balanceVisible = !balanceVisible;
-  updateBalanceDisplay();
-}
 function updateBalanceDisplay(){
   const el = document.getElementById('balanceDisplay');
   if(!el) return;
-  if(balanceVisible){
+  // Balance is hidden in Discipline mode (heads-down, think in %), shown when off.
+  if(!disciplineOn){
     el.textContent = '$' + getStartBalance().toFixed(2);
-    document.getElementById('balanceEye').textContent = '🙈';
   } else {
     el.textContent = '••••••';
-    document.getElementById('balanceEye').textContent = '👁';
   }
 }
 
@@ -3939,8 +3942,8 @@ function renderTradesPanel(){
         </div>
         ${lev>1?`<span class="tc-lev">${lev}×</span>`:''}
       </div>
-      <div class="tc-pnl ${pnlCls}">${sign}${posAcctPct.toFixed(2)}%</div>
-      <div class="tc-acct ${pnlCls}">of account &nbsp;|&nbsp; position: ${rawPct>=0?'+':''}${rawPct.toFixed(2)}%</div>
+      <div class="tc-pnl ${pnlCls}">${disciplineOn ? sign+posAcctPct.toFixed(2)+'%' : sign+'$'+Math.abs(posDollar).toFixed(2)}</div>
+      <div class="tc-acct ${pnlCls}">${disciplineOn ? 'of account' : 'P&L'} &nbsp;|&nbsp; position: ${rawPct>=0?'+':''}${rawPct.toFixed(2)}%</div>
       <div class="tc-rows">
         <div class="tc-row"><span class="tc-key">Entry</span><span class="tc-val">$${fmt(entry)}</span></div>
         <div class="tc-row"><span class="tc-key">Current</span><span class="tc-val">$${fmt(p)}</span></div>
@@ -4233,7 +4236,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.74';
+const BUILD = '2026-06-14.75';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
