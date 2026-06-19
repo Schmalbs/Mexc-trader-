@@ -142,6 +142,13 @@
   .side-panel{width:440px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;}
   .panel-section{padding:9px 10px;border-bottom:1px solid var(--border);}
   .panel-title{font-family:var(--font-mono);font-size:9px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:6px;}
+  /* Collapsible panel sections */
+  .sec-head{display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;-webkit-user-select:none;}
+  .sec-head .panel-title{margin-bottom:0;}
+  .sec-caret{font-size:11px;color:var(--muted);transition:transform .15s;flex-shrink:0;margin-left:8px;}
+  .sec-body{margin-top:8px;}
+  .sec-collapsed .sec-body{display:none;}
+  .sec-collapsed .sec-caret{transform:rotate(-90deg);}
 
   /* QUICK TRADE */
   .quick-btns{display:flex;gap:6px;margin-bottom:10px;}
@@ -245,6 +252,44 @@
 <body>
 
 <!-- ── LOGIN GATE ── -->
+<div id="closeCondModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(3px);">
+  <div style="background:var(--panel);border:1px solid var(--accent2);border-radius:12px;max-width:380px;width:100%;padding:18px;max-height:88vh;overflow-y:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+      <div style="font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--text);">📐 Candle-close exit</div>
+      <button onclick="closeCondCancel()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;">×</button>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.4;">Closes the trade when a candle of the chosen timeframe <b>closes</b> past your level — a wick through doesn't count. Runs alongside your stop loss; whichever happens first closes the trade. Fully deterministic — no AI.</div>
+
+    <div class="form-label">When a</div>
+    <select id="ccTf" style="width:100%;margin-bottom:8px;">
+      <option value="Min5">5m candle</option>
+      <option value="Min15">15m candle</option>
+      <option value="Min60">1h candle</option>
+      <option value="Hour4">4h candle</option>
+      <option value="Day1" selected>1D candle</option>
+      <option value="Week1">1W candle</option>
+    </select>
+
+    <div class="form-label">closes</div>
+    <select id="ccOp" style="width:100%;margin-bottom:8px;">
+      <option value="below">below</option>
+      <option value="above">above</option>
+    </select>
+
+    <div class="form-label">this level</div>
+    <div style="display:flex;gap:0;margin-bottom:8px;border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+      <button id="ccTypePrice" onclick="ccSetType('price')" style="flex:1;padding:6px;font-family:var(--font-mono);font-size:11px;border:none;cursor:pointer;background:var(--accent2);color:#fff;">Price</button>
+      <button id="ccTypeLine" onclick="ccSetType('line')" style="flex:1;padding:6px;font-family:var(--font-mono);font-size:11px;border:none;cursor:pointer;background:transparent;color:var(--muted);">Drawn line</button>
+    </div>
+    <input type="number" id="ccPrice" step="0.01" placeholder="Price" style="width:100%;margin-bottom:10px;"/>
+    <select id="ccLine" style="width:100%;margin-bottom:10px;display:none;"></select>
+
+    <div style="display:flex;gap:8px;">
+      <button onclick="closeCondCancel()" style="flex:1;background:none;border:1px solid var(--border);color:var(--muted);border-radius:7px;padding:9px;font-family:var(--font-mono);font-size:12px;cursor:pointer;">Cancel</button>
+      <button onclick="closeCondConfirm()" style="flex:1;background:var(--accent2);border:none;color:#fff;border-radius:7px;padding:9px;font-family:var(--font-mono);font-weight:700;font-size:12px;cursor:pointer;">Add condition</button>
+    </div>
+  </div>
+</div>
 <div id="modifyTradeModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(3px);">
   <div style="background:var(--panel);border:1px solid var(--accent);border-radius:12px;max-width:380px;width:100%;padding:18px;max-height:88vh;overflow-y:auto;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
@@ -448,8 +493,12 @@
     </div>
 
     <!-- MANUAL TRADE -->
-    <div class="panel-section">
-      <div class="panel-title">Manual Trade</div>
+    <div class="panel-section" id="sec-manual" data-default="open">
+      <div class="sec-head" onclick="toggleSection('sec-manual')">
+        <div class="panel-title">Manual Trade</div>
+        <span class="sec-caret">▼</span>
+      </div>
+      <div class="sec-body">
       <div id="paperModeBanner" style="display:none;font-family:var(--font-mono);font-size:10px;color:var(--accent2);background:rgba(61,127,255,.1);border:1px solid var(--accent2);border-radius:5px;padding:5px 8px;margin-bottom:8px;text-align:center;">📝 PAPER MODE — trades are simulated, no real orders</div>
       <!-- Quick buttons -->
       <div class="quick-btns">
@@ -585,15 +634,30 @@
         </div>
         <button class="btn btn-accent" style="width:100%;margin-top:4px" onclick="manualOpenTrade()">▶ Open Trade</button>
       </div>
+      </div>
     </div>
 
-    <!-- BOT SETTINGS -->
-    <div class="panel-section">
-      <div class="panel-title">Bot / Trend Lines</div>
+    <!-- TREND LINES -->
+    <div class="panel-section" id="sec-trendlines" data-default="closed">
+      <div class="sec-head" onclick="toggleSection('sec-trendlines')">
+        <div class="panel-title">Trend Lines</div>
+        <span class="sec-caret">▼</span>
+      </div>
+      <div class="sec-body">
       <div class="tl-list" id="tlList">
         <div style="font-size:11px;color:var(--muted);font-family:var(--font-mono)">No lines drawn yet.</div>
       </div>
-      <div style="margin-top:10px;">
+      </div>
+    </div>
+
+    <!-- ARM BOTS -->
+    <div class="panel-section" id="sec-armbots" data-default="closed">
+      <div class="sec-head" onclick="toggleSection('sec-armbots')">
+        <div class="panel-title">Arm Bots</div>
+        <span class="sec-caret">▼</span>
+      </div>
+      <div class="sec-body">
+      <div style="margin-top:0;">
         <!-- TRIGGER SOURCE -->
         <div class="sub-label">Entry Trigger</div>
         <div class="trigger-source-row">
@@ -782,15 +846,24 @@
           <div id="companionChat" style="margin-top:6px;"></div>
         </div>
         <div style="border:1px solid var(--border);border-radius:7px;padding:9px;margin:8px 0;background:var(--bg2);">
-          <div style="font-family:var(--font-mono);font-size:10px;color:var(--accent2);font-weight:700;margin-bottom:5px;">📜 CUSTOM EXIT RULE (optional)</div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:6px;line-height:1.4;">Plain English, e.g. "if a 4h candle closes below 63000, close the trade" or "close if 1h closes below line 3". Code enforces it — no AI in the live loop.</div>
-          <textarea id="exitRuleText" rows="2" placeholder="Type an exit rule..." style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:6px;font-family:var(--font-mono);font-size:11px;resize:vertical;"></textarea>
-          <button class="btn" id="parseExitBtn" onclick="parseExitRule()" style="width:100%;margin-top:5px;background:rgba(61,127,255,.12);border:1px solid var(--accent2);color:var(--accent2);font-size:11px;padding:6px;">Translate rule</button>
-          <div id="exitRulePreview" style="display:none;margin-top:6px;"></div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--accent2);font-weight:700;margin-bottom:5px;">📐 CANDLE-CLOSE EXIT (optional)</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px;line-height:1.4;">Close the trade when a candle of your chosen timeframe closes above/below a price or line. Runs alongside the stop loss — whichever happens first. Fully deterministic — no AI.</div>
+          <button class="btn" onclick="openCloseCondModal(stageStructuredExit)" style="width:100%;background:rgba(0,200,150,.12);border:1px solid var(--accent);color:var(--accent);font-size:11px;padding:6px;">📐 Add candle-close condition</button>
           <div id="stagedExitRules" style="margin-top:6px;"></div>
         </div>
         <button class="btn btn-accent" style="width:100%;margin-top:4px" id="armBtn" onclick="armBot()">▶ ARM NEW BOT</button>
-        <div id="armedBotsList" style="display:none;margin-top:8px;"></div>
+      </div>
+      </div>
+    </div>
+
+    <!-- ARMED BOTS -->
+    <div class="panel-section" id="sec-armedbots" data-default="open">
+      <div class="sec-head" onclick="toggleSection('sec-armedbots')">
+        <div class="panel-title">Armed Bots</div>
+        <span class="sec-caret">▼</span>
+      </div>
+      <div class="sec-body">
+        <div id="armedBotsList" style="margin-top:0;"></div>
         <button class="btn" id="rearmBtn" onclick="rearmSavedBots()"
           style="width:100%;margin-top:6px;display:none;background:rgba(61,127,255,.12);border:1px solid var(--accent2);color:var(--accent2);">
           ↻ RE-ARM PREVIOUS BOTS
@@ -810,13 +883,18 @@
     </div>
 
     <!-- OPEN TRADES -->
-    <div class="panel-section" id="tradesPanel">
-      <div class="panel-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>Open Trades</span>
-        <span id="tradesPanelSub" style="font-size:10px;color:var(--muted);font-weight:400;letter-spacing:0;text-transform:none;">No open trades</span>
+    <div class="panel-section" id="sec-opentrades" data-default="open">
+      <div class="sec-head" onclick="toggleSection('sec-opentrades')">
+        <div class="panel-title" style="display:flex;justify-content:space-between;align-items:center;flex:1;">
+          <span>Open Trades</span>
+          <span id="tradesPanelSub" style="font-size:10px;color:var(--muted);font-weight:400;letter-spacing:0;text-transform:none;">No open trades</span>
+        </div>
+        <span class="sec-caret">▼</span>
       </div>
+      <div class="sec-body">
       <div id="tradesList">
         <div class="tc-empty">No open trades</div>
+      </div>
       </div>
     </div>
 
@@ -1098,6 +1176,23 @@ let activeTrade = null;
 // per-session choice, never remembered, so you can never unknowingly be in paper
 // mode after a reload (which would silently simulate trades you think are real).
 let tradeMode = 'live';
+// ── COLLAPSIBLE PANEL SECTIONS ──
+function toggleSection(id){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.classList.toggle('sec-collapsed');
+  try{ localStorage.setItem('sec:'+id, el.classList.contains('sec-collapsed')?'1':'0'); }catch(e){}
+}
+function initSections(){
+  // Apply saved collapse state; fall back to each section's default (data-default="closed"|"open")
+  document.querySelectorAll('.panel-section[id^="sec-"]').forEach(el=>{
+    let saved = null;
+    try{ saved = localStorage.getItem('sec:'+el.id); }catch(e){}
+    const collapsed = saved!=null ? saved==='1' : (el.dataset.default==='closed');
+    el.classList.toggle('sec-collapsed', collapsed);
+  });
+}
+
 function setTradeMode(mode){
   tradeMode = mode;
   const liveBtn = document.getElementById('modeLiveBtn');
@@ -1319,7 +1414,7 @@ function removeTpLevel(i){
 }
 
 // init
-document.addEventListener('DOMContentLoaded', ()=>{ renderTpLevels(); updateSlHint(); onDirChange(); setLineColorForTf(); initTfKeyDrag(); setTradeMode(tradeMode); });
+document.addEventListener('DOMContentLoaded', ()=>{ renderTpLevels(); updateSlHint(); onDirChange(); setLineColorForTf(); initTfKeyDrag(); setTradeMode(tradeMode); initSections(); });
 setInterval(updateSlHint, 3000); // stays accurate as trigger line/selection changes
 
 // ── SERVER BOT STATUS POLLING ──
@@ -1464,7 +1559,7 @@ function renderArmedBots(){
   const box = document.getElementById('armedBotsList');
   if(!box) return;
   const list = serverBots.filter(b => !b.manualOnly);
-  if(!list.length){ box.innerHTML=''; box.style.display='none'; return; }
+  if(!list.length){ box.innerHTML='<div style="font-size:11px;color:var(--muted);font-family:var(--font-mono);">No bots armed.</div>'; box.style.display='block'; return; }
   box.style.display='block';
   box.innerHTML = list.map(b=>{
     const phaseTag = b.phase==='retest' ? ' <span style="color:var(--warn)">⏳ break seen — awaiting retest</span>' : '';
@@ -1574,6 +1669,21 @@ async function submitModifyTrade(){
 }
 
 async function openLiveExitDialog(botId){
+  // Structured candle-close condition (deterministic, no NLP) for a live trade.
+  openCloseCondModal(async (rule)=>{
+    try{
+      // include current lines so the server can resolve a lineId to geometry
+      rule.lines = trendLines.map(t=>({id:t.id, isHoriz:!!t.isHoriz, horizPrice:t.horizPrice, p1:t.p1, p2:t.p2}));
+      if(!confirm(`Add this exit condition to the open trade?\n\n${rule.label}\n\nThis runs alongside the stop loss — whichever happens first closes the trade.`)) return;
+      const sr = await fetch(PROXY+'/bot/set-exits',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({botId, rules:[rule]})});
+      if(sr.status===401){ handleAuthFailure(); return; }
+      const sd = await sr.json();
+      if(sd.ok){ log(`Exit condition attached to Bot #${botId}: ${rule.label}`,'ok'); pollBotStatus(); }
+      else log('Failed to attach: '+(sd.error||'unknown'),'err');
+    }catch(e){ log('Exit condition error: '+e.message,'err'); }
+  });
+}
+async function openLiveExitDialogOLD_NLP(botId){
   const text = prompt('Exit rule for this open trade (plain English):\\n\\ne.g. "if a 4h candle closes below line 3 then retests and closes below, close the trade"');
   if(text===null || !text.trim()) return;
   try{
@@ -3272,64 +3382,63 @@ async function saveJournalOnly(){
   }catch(e){ log('Save error: '+e.message,'err'); }
 }
 
-async function parseExitRule(){
-  const text = document.getElementById('exitRuleText').value.trim();
-  if(!text){ log('Type an exit rule first.','err'); return; }
-  if(stagedExitRules.length >= 5){ log('Max 5 exit rules.','err'); return; }
-  const btn = document.getElementById('parseExitBtn');
-  btn.disabled = true; btn.textContent = 'Translating…';
-  try{
-    const lines = trendLines.map(t=>({id:t.id, isHoriz:!!t.isHoriz, horizPrice:t.horizPrice, p1:t.p1, p2:t.p2}));
-    const r = await fetch(PROXY+'/bot/parse-exit',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({text, lines})});
-    if(r.status===401){ handleAuthFailure(); return; }
-    const d = await r.json();
-    if(!d.ok){
-      document.getElementById('exitRulePreview').style.display='block';
-      if(d.needsClarification){
-        // missing a detail — guide the user, don't alarm them
-        document.getElementById('exitRulePreview').innerHTML = `<div style="border:1px solid var(--warn);border-radius:6px;padding:8px;background:rgba(245,166,35,.08);font-size:11px;color:var(--text);line-height:1.45;">⚠️ Need a bit more detail:<br><span style="color:var(--warn);">${d.reason||'Please add the missing detail.'}</span><br><span style="color:var(--muted);font-size:10px;">Edit your rule above and tap Translate again.</span></div>`;
-      } else {
-        document.getElementById('exitRulePreview').innerHTML = `<div style="font-size:10px;color:var(--danger);">${d.reason||"Couldn't understand that as an exit rule — try rephrasing."}</div>`;
-      }
-      return;
-    }
-    // Show confirmation card
-    const lvlTxt = d.lineId!=null ? `line #${d.lineId}` : `$${(+d.level).toLocaleString()}`;
-    const tf = (Array.isArray(d.tfs) && d.tfs.length)
-      ? d.tfs.map(x=>TF_LABEL[x]||x).join(' / ')
-      : (TF_LABEL[d.tf]||d.tf);
-    let desc;
-    if(d.kind==='failed_retest'){
-      const pct = d.retestPct!=null ? d.retestPct : 0.1;
-      const tfWord = (Array.isArray(d.tfs)&&d.tfs.length) ? `any of ${tf}` : tf;
-      desc = `<b>Failed retest</b> (${tfWord}): first a candle closes <b>${d.operator}</b> ${lvlTxt}, then a later candle wicks back to within ${pct}% (or touches it) but closes <b>${d.operator}</b> again → close.`;
-    } else if(d.onceOnly){
-      desc = `<b>One-shot:</b> if the <b>next ${tf}</b> candle closes <b>${d.operator}</b> ${lvlTxt}, close the trade. If it doesn't, the rule is cancelled.`;
-    } else if(Array.isArray(d.tfs) && d.tfs.length){
-      desc = `Close when a candle on <b>any of ${tf}</b> closes <b>${d.operator}</b> ${lvlTxt} (ongoing, checked per timeframe).`;
-    } else {
-      desc = `Close when <b>any ${tf}</b> candle closes <b>${d.operator}</b> ${lvlTxt} (ongoing).`;
-    }
-    document.getElementById('exitRulePreview').style.display='block';
-    document.getElementById('exitRulePreview').innerHTML = `
-      <div style="border:1px solid var(--accent2);border-radius:6px;padding:8px;background:rgba(61,127,255,.08);">
-        <div style="font-size:11px;color:var(--text);margin-bottom:6px;line-height:1.45;">${desc}</div>
-        <div style="display:flex;gap:6px;">
-          <button class="btn" onclick='confirmExitRule(${JSON.stringify(d).replace(/'/g,"&#39;")})' style="flex:1;background:var(--accent);color:#06281f;font-size:10px;padding:5px;">✓ Add rule</button>
-          <button class="btn" onclick="document.getElementById('exitRulePreview').style.display='none'" style="flex:1;font-size:10px;padding:5px;">Cancel</button>
-        </div>
-      </div>`;
-  }catch(e){
-    document.getElementById('exitRulePreview').style.display='block';
-    document.getElementById('exitRulePreview').innerHTML = `<div style="font-size:10px;color:var(--danger);">Error: ${e.message}</div>`;
-  }finally{
-    btn.disabled = false; btn.textContent = 'Translate rule';
+// ── STRUCTURED CANDLE-CLOSE EXIT (deterministic, no NLP) ──
+let ccType = 'price';
+let ccOnConfirm = null; // callback(ruleObj)
+function ccSetType(t){
+  ccType = t;
+  document.getElementById('ccTypePrice').style.background = t==='price'?'var(--accent2)':'transparent';
+  document.getElementById('ccTypePrice').style.color      = t==='price'?'#fff':'var(--muted)';
+  document.getElementById('ccTypeLine').style.background  = t==='line'?'var(--accent2)':'transparent';
+  document.getElementById('ccTypeLine').style.color       = t==='line'?'#fff':'var(--muted)';
+  document.getElementById('ccPrice').style.display = t==='price'?'block':'none';
+  document.getElementById('ccLine').style.display  = t==='line'?'block':'none';
+  if(t==='line'){
+    const sel = document.getElementById('ccLine');
+    sel.innerHTML = trendLines.length
+      ? trendLines.map(l=>`<option value="${l.id}">Line #${l.id} — ${l.isHoriz?'horizontal @ $'+(+l.horizPrice).toFixed(0):'sloped'}${l.tf?' ['+l.tf+']':''}</option>`).join('')
+      : '<option value="">(draw a line first)</option>';
   }
+}
+function openCloseCondModal(onConfirm){
+  ccOnConfirm = onConfirm;
+  document.getElementById('ccPrice').value = '';
+  ccSetType('price');
+  document.getElementById('closeCondModal').style.display = 'flex';
+}
+function closeCondCancel(){ document.getElementById('closeCondModal').style.display='none'; ccOnConfirm=null; }
+function closeCondConfirm(){
+  const tf = document.getElementById('ccTf').value;
+  const operator = document.getElementById('ccOp').value;
+  const tfLabel = document.getElementById('ccTf').selectedOptions[0].textContent;
+  let rule = { kind:'simple', tf, operator };
+  let levelLabel;
+  if(ccType==='line'){
+    const lineId = document.getElementById('ccLine').value;
+    if(!lineId){ alert('Pick a line, or draw one first.'); return; }
+    rule.lineId = lineId;
+    levelLabel = 'line #'+lineId;
+  } else {
+    const px = parseFloat(document.getElementById('ccPrice').value);
+    if(!px || isNaN(px)){ alert('Enter a valid price.'); return; }
+    rule.level = px;
+    levelLabel = '$'+px;
+  }
+  rule.label = `${tfLabel} closes ${operator} ${levelLabel} → close trade`;
+  document.getElementById('closeCondModal').style.display='none';
+  if(ccOnConfirm) ccOnConfirm(rule);
+  ccOnConfirm = null;
+}
+
+// (plain-English exit parser removed — use the structured candle-close builder)
+function stageStructuredExit(rule){
+  if(stagedExitRules.length >= 5){ log('Max 5 exit rules.','err'); return; }
+  confirmExitRule(rule);
 }
 function confirmExitRule(rule){
   stagedExitRules.push(rule);
-  document.getElementById('exitRulePreview').style.display='none';
-  document.getElementById('exitRuleText').value='';
+  const pv = document.getElementById('exitRulePreview'); if(pv) pv.style.display='none';
+  const tx = document.getElementById('exitRuleText'); if(tx) tx.value='';
   renderStagedExits();
   log(`Exit rule added: ${rule.label}`,'ok');
 }
@@ -4095,7 +4204,7 @@ async function signHmac(secret,message){
 }
 
 // ── LOG ────────────────────────────────────────
-const BUILD = '2026-06-14.68';
+const BUILD = '2026-06-14.71';
 
 let authFailChecking = false;
 async function handleAuthFailure(){
